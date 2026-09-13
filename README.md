@@ -16,8 +16,10 @@ Double-click `start.bat`, or from a PowerShell prompt:
 ```
 
 The script creates `.venv` on first use, installs the dependencies, starts the server on
-http://127.0.0.1:8766 and opens the browser. Ollama must be running (default
-`http://127.0.0.1:11434`; override with the `OLLAMA_HOST` environment variable).
+http://127.0.0.1:8766 and opens the browser. If Ollama is not already running, the
+script starts `ollama serve` as a separate detached process, so Ollama keeps running after
+the app is closed. Ollama is expected at `http://127.0.0.1:11434` by default; override with
+the `OLLAMA_HOST` environment variable.
 
 ## Features
 
