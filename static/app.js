@@ -154,7 +154,7 @@
 
   const FACTORY_SETTINGS = {
     model: "",
-    system_prompt: "You are a helpful, knowledgeable assistant. Answer directly and accurately. Use Markdown formatting when it aids readability and LaTeX ($...$ inline, $$...$$ display) for mathematical notation.",
+    system_prompt: 'You are a helpful, knowledgeable assistant. Lead with the answer, then the reasoning if it adds something. Match the length and depth of your reply to the question; skip filler and do not restate the question. If you are unsure or the request is ambiguous, say so and state your assumption or ask one short question. Use Markdown for structure when it aids readability, fenced code blocks with a language tag for code, and LaTeX ($...$ inline, $$...$$ display) for mathematical notation.',
     think: "default",
     options: { temperature: 0.7, top_p: 0.9, top_k: 40, min_p: 0, repeat_penalty: 1.1, repeat_last_n: 256, num_predict: "", num_ctx: 8192, seed: "" },
     loop_guard: { enabled: true, threshold: 3 },
@@ -393,22 +393,32 @@
   }
 
   // ------------------------------------------------------------------ presets
+  // Built-in presets come from the server (read-only); the user's own live in settings.json.
+  const builtinPresets = () => state.server.builtin_presets || [];
+  const userPresets = () => (state.server.system_prompt_presets || []).filter((p) => !builtinPresets().some((b) => b.name === p.name && b.prompt === p.prompt));
   function renderPresets() {
-    const presets = state.server.system_prompt_presets || [];
+    const user = userPresets(), builtin = builtinPresets();
     ui.preset.replaceChildren(
       el("option", { value: "", text: "Custom prompt" }),
-      ...presets.map((p, i) => el("option", { value: String(i), text: p.name }))
+      builtin.length ? el("optgroup", { label: "Built-in" }, ...builtin.map((p, i) => el("option", { value: `b${i}`, text: p.name }))) : null,
+      user.length ? el("optgroup", { label: "Yours" }, ...user.map((p, i) => el("option", { value: `u${i}`, text: p.name }))) : null,
     );
     syncPresetSelection();
   }
+  function presetByValue(v) {
+    if (!v) return null;
+    const list = v[0] === "b" ? builtinPresets() : userPresets();
+    return list[Number(v.slice(1))] || null;
+  }
   function syncPresetSelection() {
-    const presets = state.server.system_prompt_presets || [];
-    const idx = presets.findIndex((p) => p.prompt.trim() === (state.chat?.settings.system_prompt || "").trim());
-    ui.preset.value = idx >= 0 ? String(idx) : "";
-    $("#delete-preset").hidden = idx < 0;
+    const current = (state.chat?.settings.system_prompt || "").trim();
+    const bi = builtinPresets().findIndex((p) => p.prompt.trim() === current);
+    const ui_ = userPresets().findIndex((p) => p.prompt.trim() === current);
+    ui.preset.value = ui_ >= 0 ? `u${ui_}` : bi >= 0 ? `b${bi}` : "";
+    $("#delete-preset").hidden = ui_ < 0;      // built-ins cannot be deleted
   }
   ui.preset.onchange = () => {
-    const p = (state.server.system_prompt_presets || [])[Number(ui.preset.value)];
+    const p = presetByValue(ui.preset.value);
     if (p) { ui.systemPrompt.value = p.prompt; onPanelChange(); }
   };
   $("#save-preset").onclick = async () => {
@@ -420,10 +430,9 @@
     catch (e) { toast(e.message, true); }
   };
   $("#delete-preset").onclick = async () => {
-    const presets = state.server.system_prompt_presets || [];
-    const idx = Number(ui.preset.value);
-    if (!presets[idx] || !confirm(`Delete preset "${presets[idx].name}"?`)) return;
-    presets.splice(idx, 1);
+    const target = presetByValue(ui.preset.value);
+    if (!target || ui.preset.value[0] !== "u" || !confirm(`Delete preset "${target.name}"?`)) return;
+    const presets = (state.server.system_prompt_presets || []).filter((p) => !(p.name === target.name && p.prompt === target.prompt));
     try { state.server = await api("/api/settings", { method: "PUT", body: { system_prompt_presets: presets } }); renderPresets(); }
     catch (e) { toast(e.message, true); }
   };

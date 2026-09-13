@@ -59,21 +59,17 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "allow_outside_workspace": False, # let file tools use absolute paths anywhere on this computer
     "tool_policies": {},              # per tool: "ask" (Allow / Deny in the chat) or "auto"; missing = the tool's default
     "chat_defaults": {},              # settings new chats start with ("Use as defaults" in the controls panel)
-    "system_prompt_presets": [
-        {"name": "Helpful assistant",
-         "prompt": "You are a helpful, knowledgeable assistant. Answer directly and accurately. "
-                   "Use Markdown formatting when it aids readability."},
-        {"name": "Concise",
-         "prompt": "You are a precise assistant. Answer in as few words as the question allows. "
-                   "No preamble, no summaries, no filler."},
-        {"name": "Programmer",
-         "prompt": "You are an expert software engineer. Give correct, idiomatic code with brief explanations. "
-                   "Always put code in fenced blocks with the language tag. Point out pitfalls and edge cases."},
-        {"name": "Writer",
-         "prompt": "You are a skilled writer and editor. Write vivid, natural prose. Match the tone the user "
-                   "asks for and avoid clichés."},
-    ],
+    "system_prompt_presets": [],      # the user's own presets; the built-in ones below are always offered as well
 }
+
+
+# Built-in system prompts. Served read-only next to the user's saved presets, so they stay available
+# (and can be updated with the app) without being copied into settings.json.
+BUILTIN_PRESETS: list[dict[str, str]] = [
+    {"name": "Helpful assistant", "prompt": 'You are a helpful, knowledgeable assistant. Lead with the answer, then the reasoning if it adds something. Match the length and depth of your reply to the question; skip filler and do not restate the question. If you are unsure or the request is ambiguous, say so and state your assumption or ask one short question. Use Markdown for structure when it aids readability, fenced code blocks with a language tag for code, and LaTeX ($...$ inline, $$...$$ display) for mathematical notation.'},
+    {"name": "Agent", "prompt": 'You are a capable assistant working in agent mode: you can call tools to look things up on the web, read and change files in the workspace, and run code. Work in small, checkable steps: look before you change (list or read a file before editing it, search before assuming), make one focused change at a time, and verify the result with a tool call when it matters. Prefer edit_file over rewriting whole files. Tool results are visible only to you, so report what you found and did in plain language, including anything that failed or that you skipped. If a request is ambiguous in a way that changes the outcome, use ask_user once instead of guessing. If a tool call is declined, do not retry it; continue without it or explain what you would need. Keep the user informed without narrating every step. Use Markdown, fenced code blocks with a language tag, and LaTeX ($...$ inline, $$...$$ display) for mathematical notation.'},
+    {"name": "Agent, complex tasks", "prompt": 'You are a capable assistant working in agent mode: you can call tools to look things up on the web, read and change files in the workspace, and run code. Work in small, checkable steps: look before you change (list or read a file before editing it, search before assuming), make one focused change at a time, and verify the result with a tool call when it matters. Prefer edit_file over rewriting whole files. Tool results are visible only to you, so report what you found and did in plain language, including anything that failed or that you skipped. If a request is ambiguous in a way that changes the outcome, use ask_user once instead of guessing. If a tool call is declined, do not retry it; continue without it or explain what you would need. Keep the user informed without narrating every step. Use Markdown, fenced code blocks with a language tag, and LaTeX ($...$ inline, $$...$$ display) for mathematical notation. For large or multi-step tasks, work like an engineer: first restate the goal and constraints in one or two sentences, then lay out a short plan of three to seven steps before you start. Execute it step by step, re-reading a file right before you change it rather than relying on memory. After each significant change, verify it (run the code, search for remaining references, read the result back) and fix problems before moving on. Never delete or overwrite something you have not read in this session. Keep track of what is done and what is left; if you hit the step limit or a blocker, stop and summarise the current state, what remains, and how to continue. Finish with a concise summary: what changed (files, commands), how it was verified, and any open questions.'},
+]
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -1934,7 +1930,7 @@ async def unload_model(body: dict[str, Any]) -> JSONResponse:
 
 @app.get("/api/settings")
 async def get_settings() -> JSONResponse:
-    return JSONResponse(load_settings())
+    return JSONResponse({**load_settings(), "builtin_presets": BUILTIN_PRESETS})
 
 
 @app.put("/api/settings")
@@ -1943,7 +1939,7 @@ async def put_settings(body: dict[str, Any]) -> JSONResponse:
     data.update({k: v for k, v in body.items() if k in DEFAULT_SETTINGS})
     data["tool_policies"] = clean_tool_policies(data.get("tool_policies"))
     save_settings(data)
-    return JSONResponse(data)
+    return JSONResponse({**data, "builtin_presets": BUILTIN_PRESETS})
 
 
 @app.get("/api/chats")

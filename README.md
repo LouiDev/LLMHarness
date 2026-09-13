@@ -25,7 +25,8 @@ the `OLLAMA_HOST` environment variable.
 
 - **Model selection** from whatever Ollama has pulled, with capability badges (thinking,
   tools, vision) and the model's context length. Unload a model from memory with one click.
-- **System prompt** per chat, with saved presets (stored server-side in `settings.json`).
+- **System prompt** per chat. Three built-in presets ship with the app (Helpful assistant, Agent,
+  Agent for complex tasks) and your own presets are stored server-side in `settings.json`.
 - **Thinking mode**: model default, off, on, or an effort level for models that support it.
   Models that emit `<think>` tags without native support are parsed too. Thinking streams
   live into a collapsible block and shows how long the model thought.
