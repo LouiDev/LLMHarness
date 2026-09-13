@@ -37,7 +37,7 @@ PORT = int(os.environ.get("LLMHARNESS_PORT", "8766"))
 ROOT = Path(__file__).resolve().parent
 CHATS_DIR = Path(os.environ.get("LLMHARNESS_CHATS", ROOT / "chats"))
 CHATS_DIR.mkdir(parents=True, exist_ok=True)
-SETTINGS_FILE = ROOT / "settings.json"
+SETTINGS_FILE = Path(os.environ.get("LLMHARNESS_SETTINGS", ROOT / "settings.json"))
 
 LOOP_MIN_UNIT_CHARS = 20          # shorter sentences/paragraphs are ignored by the repeat counter
 LOOP_CHECK_EVERY_CHARS = 40       # how often the tail-repeat check runs
@@ -56,6 +56,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "keep_alive": "5m",
     "helper_model": "",               # optional small model for search planning and titles ("" = the chat model)
     "workspace_dir": "",              # folder the agent's file tools may touch ("" = ./workspace)
+    "allow_outside_workspace": False, # let file tools use absolute paths anywhere on this computer
     "chat_defaults": {},              # settings new chats start with ("Use as defaults" in the controls panel)
     "system_prompt_presets": [
         {"name": "Helpful assistant",
@@ -651,11 +652,14 @@ def workspace_dir(settings: dict[str, Any]) -> Path:
     return Path(raw).expanduser() if raw else ROOT / "workspace"
 
 
-def workspace_path(base: Path, rel: str) -> Path:
-    """Resolve a model-supplied path inside the workspace; refuses anything that escapes it."""
+def workspace_path(base: Path, rel: str, unrestricted: bool = False) -> Path:
+    """Resolve a model-supplied path. Confined to the workspace unless `unrestricted` (a server setting)."""
     base = base.resolve()
     rel = (rel or ".").strip().replace("\\", "/")
-    if rel.startswith("/") or re.match(r"^[a-zA-Z]:", rel):
+    absolute = rel.startswith("/") or bool(re.match(r"^[a-zA-Z]:", rel))
+    if unrestricted:
+        return (Path(rel) if absolute else base / rel).expanduser().resolve()
+    if absolute:
         raise ValueError(f"'{rel}' is absolute; use a path relative to the workspace")
     p = (base / rel).resolve()
     if p != base and base not in p.parents:
@@ -671,6 +675,7 @@ class ToolContext:
         self.settings = settings
         self.search_cfg = search_cfg
         self.workspace = workspace_dir(settings)
+        self.unrestricted = bool(settings.get("allow_outside_workspace"))
         self.sources: list[dict[str, Any]] = []   # numbered across every search in the reply
         self.queries: list[str] = []
 
@@ -712,7 +717,7 @@ def _rel(base: Path, p: Path) -> str:
 
 async def tool_list_files(ctx: ToolContext, args: dict[str, Any]) -> str:
     rel = str(args.get("path") or ".")
-    p = workspace_path(ctx.workspace, rel)
+    p = workspace_path(ctx.workspace, rel, ctx.unrestricted)
     if not p.exists():
         if p == ctx.workspace.resolve():
             return "The workspace is empty (the folder does not exist yet; writing a file creates it)."
@@ -735,7 +740,7 @@ async def tool_read_file(ctx: ToolContext, args: dict[str, Any]) -> str:
     rel = str(args.get("path") or "")
     if not rel:
         raise ValueError("path is required")
-    p = workspace_path(ctx.workspace, rel)
+    p = workspace_path(ctx.workspace, rel, ctx.unrestricted)
     if not p.is_file():
         raise ValueError(f"'{rel}' is not a file in the workspace")
     text = _decode_text(p.read_bytes()[:2_000_000])
@@ -755,7 +760,7 @@ async def tool_write_file(ctx: ToolContext, args: dict[str, Any]) -> str:
         raise ValueError("content is required")
     if not isinstance(content, str):
         content = json.dumps(content, indent=2, ensure_ascii=False)
-    p = workspace_path(ctx.workspace, rel)
+    p = workspace_path(ctx.workspace, rel, ctx.unrestricted)
     if p.is_dir():
         raise ValueError(f"'{rel}' is a folder")
     existed = p.exists()
@@ -833,10 +838,20 @@ TOOLS: dict[str, dict[str, Any]] = {
 }
 
 
-def tool_specs(names: list[str]) -> list[dict[str, Any]]:
-    return [{"type": "function", "function": {"name": n, "description": TOOLS[n]["description"],
-                                              "parameters": TOOLS[n]["parameters"]}}
-            for n in names if n in TOOLS]
+FILE_TOOLS = ("list_files", "read_file", "write_file")
+
+
+def tool_specs(names: list[str], unrestricted: bool = False) -> list[dict[str, Any]]:
+    specs = []
+    for n in names:
+        if n not in TOOLS:
+            continue
+        desc = TOOLS[n]["description"]
+        if unrestricted and n in FILE_TOOLS:
+            desc += " Absolute paths anywhere on this computer are allowed as well."
+        specs.append({"type": "function", "function": {"name": n, "description": desc,
+                                                       "parameters": TOOLS[n]["parameters"]}})
+    return specs
 
 
 def public_tools() -> list[dict[str, Any]]:
@@ -852,7 +867,11 @@ def agent_instructions(ctx: ToolContext, names: list[str]) -> str:
         "or explain what you would need.",
     ]
     if any(n in names for n in ("list_files", "read_file", "write_file", "run_python")):
-        lines.append(f"File tools work inside the workspace folder {ctx.workspace}. Use paths relative to it.")
+        if ctx.unrestricted:
+            lines.append(f"File tools default to the workspace folder {ctx.workspace} for relative paths, "
+                         "and absolute paths anywhere on this computer are allowed.")
+        else:
+            lines.append(f"File tools work inside the workspace folder {ctx.workspace}. Use paths relative to it.")
     return "\n".join(lines)
 
 
@@ -1098,7 +1117,7 @@ async def generate_stream(req: dict[str, Any], request: Request) -> AsyncIterato
                 step_start = len(assistant["content"])
                 if agent_active:
                     if step < max_steps:
-                        payload["tools"] = tool_specs(tool_names)
+                        payload["tools"] = tool_specs(tool_names, tool_ctx.unrestricted)
                     else:
                         payload.pop("tools", None)
                         if step > 1:
@@ -1479,7 +1498,9 @@ async def answer_tool_call(gen_id: str, call_id: str, body: dict[str, Any]) -> J
 
 @app.get("/api/tools")
 async def list_tools() -> JSONResponse:
-    return JSONResponse({"tools": public_tools(), "workspace": str(workspace_dir(load_settings()))})
+    settings = load_settings()
+    return JSONResponse({"tools": public_tools(), "workspace": str(workspace_dir(settings)),
+                         "allow_outside_workspace": bool(settings.get("allow_outside_workspace"))})
 
 
 @app.post("/api/extract")

@@ -292,6 +292,7 @@
       ...state.models.map((m) => el("option", { value: m.name, text: m.name })));
     $("#s-helper").value = state.models.some((m) => m.name === state.server.helper_model) ? state.server.helper_model : "";
     $("#s-workspace").value = state.server.workspace_dir || "";
+    $("#s-outside").checked = !!state.server.allow_outside_workspace;
     $("#s-test-result").textContent = "";
     $("#s-searxng-wrap").hidden = $("#s-provider").value !== "searxng";
     dialog.showModal();
@@ -305,6 +306,7 @@
         search_provider: $("#s-provider").value, searxng_url: $("#s-searxng").value.trim(),
         search_region: $("#s-region").value.trim() || "wt-wt", keep_alive: $("#s-keepalive").value.trim() || "5m",
         helper_model: $("#s-helper").value, workspace_dir: $("#s-workspace").value.trim(),
+        allow_outside_workspace: $("#s-outside").checked,
       } });
       dialog.close(); toast("Settings saved");
       loadTools();
@@ -712,7 +714,9 @@
         catch (e) { toast(e.message, true); }
       };
       details.append(el("div", { class: "tool-ask-row" },
-        el("span", { text: rec.name === "write_file" || rec.name === "run_python" ? "This changes files or runs code in the workspace." : "The model wants to run this tool." }),
+        el("span", { text: rec.name === "write_file" || rec.name === "run_python"
+          ? (state.server.allow_outside_workspace ? "This changes files or runs code on this computer." : "This changes files or runs code in the workspace.")
+          : "The model wants to run this tool." }),
         el("button", { class: "btn primary small", text: "Allow", onclick: () => answer(true) }),
         el("button", { class: "btn ghost small", text: "Deny", onclick: () => answer(false) })));
     }

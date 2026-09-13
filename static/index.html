@@ -226,7 +226,9 @@
       <span>Agent workspace folder</span>
       <input id="s-workspace" placeholder="workspace (next to server.py)">
     </label>
-    <p class="help">The only folder the agent's file tools can list, read, write or run Python in. Leave empty for the default.</p>
+    <p class="help">The folder the agent's file tools list, read and write in, and where Python runs. Leave empty for the default.</p>
+    <label class="check"><input type="checkbox" id="s-outside"> <span>Allow absolute paths outside the workspace</span></label>
+    <p class="help warn-text">With this on, approved file tool calls can read and write anywhere your user account can. Every such call still asks for approval in the chat.</p>
     <div class="row-actions">
       <button type="button" class="btn ghost small" id="s-test-search">Test search</button>
       <span class="help" id="s-test-result"></span>

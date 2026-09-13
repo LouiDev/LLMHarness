@@ -429,6 +429,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 }
 
 /* ---- agent tools ---- */
+.warn-text { color: var(--danger); }
 .tool-list { display: grid; gap: 4px; margin: 4px 0 8px; }
 .tool-opt { justify-content: flex-start; }
 .tool-opt .tool-ask { margin-left: auto; color: var(--muted); font-size: 11.5px; font-family: var(--mono); }

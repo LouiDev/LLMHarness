@@ -59,7 +59,9 @@ the `OLLAMA_HOST` environment variable.
   click. File tools and Python are confined to a workspace folder (`workspace/` next to
   `server.py`, changeable in server settings). Each reply shows a collapsible list of the calls
   made with their arguments and results, and the loop stops after a configurable number of
-  steps. Models that do not report tool support answer normally with the tools skipped.
+  steps. Models that do not report tool support answer normally with the tools skipped. A server
+  setting can lift the workspace restriction so file tools accept absolute paths anywhere on
+  the machine; the approval prompt stays in place either way.
 - **LaTeX math** rendered with KaTeX: `$...$` and `\(...\)` inline, `$$...$$` and `\[...\]` as
   display formulas. Code blocks are left untouched.
 - Dark and light themes.
