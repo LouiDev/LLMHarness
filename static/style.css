@@ -530,3 +530,7 @@ dialog.settings-window { width: min(820px, calc(100vw - 32px)); max-height: min(
   .settings-body { flex-direction: column; }
   .settings-tabs { width: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
 }
+
+/* ---- edit_file: old / new text ---- */
+.tool-call pre.diff-old { border-left: 3px solid var(--danger); background: color-mix(in srgb, var(--danger) 9%, var(--code-bg)); }
+.tool-call pre.diff-new { border-left: 3px solid var(--teal); background: color-mix(in srgb, var(--teal) 10%, var(--code-bg)); }

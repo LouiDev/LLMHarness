@@ -54,8 +54,9 @@ the `OLLAMA_HOST` environment variable.
   Attached text is stored with the chat, so later turns and regenerations still see it.
 - **Agent mode**: the Chat / Agent switch above the composer decides whether the model only writes
   replies or may call tools. "Agent options" next to it picks the tools and the step limit. In agent
-  mode a tool-capable model can call `web_search`, `fetch_page`, `list_files`, `read_file`, `write_file`
-  and `run_python` in a loop until it has an answer. Web lookups run on their own; every other
+  mode a tool-capable model can call `web_search`, `fetch_page`, `get_datetime`, `list_files`,
+  `search_files`, `read_file`, `write_file`, `edit_file` (exact-text replacement, shown as old/new
+  in the approval card) and `run_python` in a loop until it has an answer. Web lookups run on their own; every other
   tool shows an Allow / Deny prompt in the chat first, so nothing touches the disk without a
   click. File tools and Python are confined to a workspace folder (`workspace/` next to
   `server.py`, changeable in server settings). Each reply shows a collapsible list of the calls

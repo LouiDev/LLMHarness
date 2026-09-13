@@ -804,6 +804,9 @@
     switch (rec.name) {
       case "write_file": case "read_file": return shortPath(a.path);
       case "list_files": return shortPath(a.path) || "workspace root";
+      case "edit_file": return shortPath(a.path);
+      case "search_files": return `"${str(a.pattern)}"${a.path ? ` in ${shortPath(a.path)}` : ""}${a.glob ? ` (${str(a.glob)})` : ""}`;
+      case "get_datetime": return "";
       case "web_search": return str(a.query);
       case "fetch_page": return str(a.url);
       case "run_python": return `${lineCount(str(a.code))} lines of Python`;
@@ -819,23 +822,30 @@
       case "read_file": return `Read the file ${str(a.path) || "?"}${where}.`;
       case "list_files": return a.path && str(a.path) !== "." ? `List the folder ${str(a.path)}${where}.` : "List the workspace folder.";
       case "run_python": return `Run a ${lineCount(str(a.code))}-line Python script with the workspace as working directory.`;
+      case "edit_file": return `Replace ${lineCount(str(a.old_text))} line${lineCount(str(a.old_text)) === 1 ? "" : "s"} with ${lineCount(str(a.new_text))} in ${str(a.path) || "?"}${a.replace_all ? ", every occurrence" : ""}${where}.`;
+      case "search_files": return `Search ${a.path ? str(a.path) : "the workspace"} for "${str(a.pattern)}"${a.regex ? " as a regular expression" : ""}.`;
+      case "get_datetime": return "Read the current date and time.";
       case "web_search": return `Search the web for “${str(a.query)}”.`;
       case "fetch_page": return `Download ${str(a.url)}.`;
       default: return `Run the tool ${rec.name}.`;
     }
   }
   // Arguments as labelled fields; long or multi-line text gets a block with real line breaks.
+  const DIFF_CLASS = { old_text: "diff-old", new_text: "diff-new" };
+  const ARG_ORDER = ["path", "url", "query", "pattern", "glob", "regex", "case_sensitive", "max_results", "replace_all", "old_text", "new_text", "content", "code"];
   function renderArgs(args) {
-    const isBlock = (text) => /\n/.test(text) || text.length > 90;
+    const isBlock = (k, text) => !!DIFF_CLASS[k] || /\n/.test(text) || text.length > 90;
     const entries = Object.entries(args || {}).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v, null, 2)]);
     if (!entries.length) return el("div", { class: "tool-args-empty", text: "No arguments" });
-    entries.sort((x, y) => Number(isBlock(x[1])) - Number(isBlock(y[1])));   // short fields first, long text last
+    // Short fields first, long text last; within that, a sensible fixed order (path before old before new).
+    const rank = (k) => { const i = ARG_ORDER.indexOf(k); return i < 0 ? ARG_ORDER.length : i; };
+    entries.sort((x, y) => (Number(isBlock(...x)) - Number(isBlock(...y))) || (rank(x[0]) - rank(y[0])));
     return el("div", { class: "tool-args" }, ...entries.map(([k, text]) => {
-      const block = isBlock(text);
+      const block = isBlock(k, text);
       let body;
-      if (block) {
+      if (block || DIFF_CLASS[k]) {
         const long = lineCount(text) > 8;
-        body = el("pre", { class: long ? "clamped" : "", text });
+        body = el("pre", { class: (long ? "clamped " : "") + (DIFF_CLASS[k] || ""), text: text || (DIFF_CLASS[k] ? "(nothing: the text is removed)" : "") });
         const row = el("div", { class: "tool-arg-row block" }, el("span", { class: "tool-arg-key", text: k }), body);
         if (long) {
           const btn = el("button", { type: "button", class: "tool-expand", text: `Show all ${lineCount(text)} lines` });
@@ -848,7 +858,7 @@
     }));
   }
   const STATUS_LABEL = { pending: "", running: "running…", ok: "done", error: "failed", denied: "denied", stopped: "stopped" };
-  const TOOL_BADGE = { write_file: "writes files", run_python: "runs code" };
+  const TOOL_BADGE = { write_file: "writes files", edit_file: "writes files", run_python: "runs code" };
   function renderToolCall(rec, live) {
     const details = el("details", { class: `tool-call ${rec.status}`, "data-call": rec.id, open: rec.status === "pending" || null });
     const summary = el("summary", {},

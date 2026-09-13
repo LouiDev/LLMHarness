@@ -747,6 +747,7 @@ async def tool_read_file(ctx: ToolContext, args: dict[str, Any]) -> str:
     text = _decode_text(p.read_bytes()[:2_000_000])
     if text is None:
         raise ValueError(f"'{rel}' is not a text file")
+    text = text.replace("\r\n", "\n")     # the model works with \n; edit_file maps it back to the file's style
     if len(text) > TOOL_RESULT_CHARS:
         return text[:TOOL_RESULT_CHARS] + f"\n\n[... cut after {TOOL_RESULT_CHARS:,} of {len(text):,} characters]"
     return text or "(empty file)"
@@ -766,7 +767,7 @@ async def tool_write_file(ctx: ToolContext, args: dict[str, Any]) -> str:
         raise ValueError(f"'{rel}' is a folder")
     existed = p.exists()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8")
+    p.write_bytes(content.encode("utf-8"))       # bytes, so Windows does not turn \n into \r\n (or \r\n into \r\r\n)
     return f"{'Overwrote' if existed else 'Created'} {_rel(ctx.workspace, p)} ({len(content):,} characters)."
 
 
@@ -792,6 +793,105 @@ async def tool_run_python(ctx: ToolContext, args: dict[str, Any]) -> str:
     return "\n".join(parts)[:TOOL_RESULT_CHARS]
 
 
+
+async def tool_edit_file(ctx: ToolContext, args: dict[str, Any]) -> str:
+    """Exact-text replacement; refuses ambiguous matches so the model cannot edit the wrong spot."""
+    rel = str(args.get("path") or "")
+    old = args.get("old_text")
+    new = args.get("new_text")
+    if not rel:
+        raise ValueError("path is required")
+    if not isinstance(old, str) or not old:
+        raise ValueError("old_text is required and must be a non-empty string")
+    if not isinstance(new, str):
+        raise ValueError("new_text is required (use an empty string to delete old_text)")
+    p = workspace_path(ctx.workspace, rel, ctx.unrestricted)
+    if not p.is_file():
+        raise ValueError(f"'{rel}' is not a file in the workspace")
+    raw = _decode_text(p.read_bytes()[:2_000_000])
+    if raw is None:
+        raise ValueError(f"'{rel}' is not a text file")
+    crlf = "\r\n" in raw
+    text = raw.replace("\r\n", "\n")
+    old, new = old.replace("\r\n", "\n"), new.replace("\r\n", "\n")
+    count = text.count(old)
+    if count == 0:
+        raise ValueError("old_text was not found in the file. Read the file again and copy the text exactly, "
+                         "including indentation.")
+    replace_all = bool(args.get("replace_all"))
+    if count > 1 and not replace_all:
+        raise ValueError(f"old_text occurs {count} times; include more surrounding lines to make it unique, "
+                         "or set replace_all to true.")
+    updated = text.replace(old, new) if replace_all else text.replace(old, new, 1)
+    p.write_bytes((updated.replace("\n", "\r\n") if crlf else updated).encode("utf-8"))
+    before, after = text.count("\n") + 1, updated.count("\n") + 1
+    return (f"Replaced {count if replace_all else 1} occurrence{'s' if replace_all and count != 1 else ''} in "
+            f"{_rel(ctx.workspace, p)}; the file now has {after:,} lines (was {before:,}).")
+
+
+SEARCH_SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".idea", ".vscode", "dist", "build"}
+SEARCH_MAX_FILE_BYTES = 2_000_000
+SEARCH_MAX_FILES = 5000
+
+
+async def tool_search_files(ctx: ToolContext, args: dict[str, Any]) -> str:
+    """Grep-style search: lines matching a substring (default) or regex, with the file path and line number."""
+    pattern = str(args.get("pattern") or "")
+    if not pattern:
+        raise ValueError("pattern is required")
+    root = workspace_path(ctx.workspace, str(args.get("path") or "."), ctx.unrestricted)
+    if not root.exists():
+        raise ValueError(f"'{args.get('path') or '.'}' does not exist")
+    glob = str(args.get("glob") or "").strip() or "*"
+    limit = max(1, min(int(args.get("max_results") or 50), 200))
+    flags = 0 if args.get("case_sensitive") else re.IGNORECASE
+    try:
+        rx = re.compile(pattern if args.get("regex") else re.escape(pattern), flags)
+    except re.error as e:
+        raise ValueError(f"invalid regular expression: {e}")
+
+    def run() -> str:
+        hits: list[str] = []
+        scanned = 0
+        files = [root] if root.is_file() else sorted(
+            (f for f in root.rglob(glob)
+             if f.is_file() and not (SEARCH_SKIP_DIRS & set(f.relative_to(root).parts[:-1]))),
+            key=lambda f: str(f).lower())
+        for f in files:
+            if scanned >= SEARCH_MAX_FILES or len(hits) >= limit:
+                break
+            scanned += 1
+            try:
+                if f.stat().st_size > SEARCH_MAX_FILE_BYTES:
+                    continue
+                text = _decode_text(f.read_bytes())
+            except OSError:
+                continue
+            if text is None:
+                continue
+            for i, line in enumerate(text.splitlines(), 1):
+                if rx.search(line):
+                    hits.append(f"{_rel(ctx.workspace, f)}:{i}: {line.strip()[:240]}")
+                    if len(hits) >= limit:
+                        break
+        if not hits:
+            return f"No matches for {pattern!r} in {scanned} file{'s' if scanned != 1 else ''}."
+        head = f"{len(hits)} match{'es' if len(hits) != 1 else ''} in {scanned} file{'s' if scanned != 1 else ''} scanned"
+        if len(hits) >= limit:
+            head += f" (stopped at the limit of {limit}; narrow the pattern or path for more)"
+        return head + ":\n" + "\n".join(hits)
+
+    return await asyncio.to_thread(run)
+
+
+async def tool_get_datetime(ctx: ToolContext, args: dict[str, Any]) -> str:
+    now = datetime.now().astimezone()
+    utc = now.astimezone(timezone.utc)
+    return (f"Local time: {now.strftime('%A, %d %B %Y, %H:%M:%S')} ({now.tzname()}, UTC{now.strftime('%z')[:3]}:{now.strftime('%z')[3:]})\n"
+            f"ISO 8601: {now.isoformat(timespec='seconds')}\n"
+            f"UTC: {utc.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"Unix timestamp: {int(now.timestamp())}")
+
 # approval=False: runs without asking (web lookups are read-only and leave nothing on disk).
 # approval=True: the UI shows Allow / Deny and the reply waits for the answer.
 # default: whether the tool is on when agent tools are first enabled.
@@ -810,11 +910,28 @@ TOOLS: dict[str, dict[str, Any]] = {
             "url": {"type": "string", "description": "Full http(s) URL"}}},
         "approval": False, "default": True, "handler": tool_fetch_page,
     },
+    "get_datetime": {
+        "description": "Return the current local date and time, the timezone, and the UTC time.",
+        "parameters": {"type": "object", "properties": {}},
+        "approval": False, "default": True, "handler": tool_get_datetime,
+    },
     "list_files": {
         "description": "List files and folders in the workspace directory.",
         "parameters": {"type": "object", "properties": {
             "path": {"type": "string", "description": "Folder relative to the workspace; omit for the root"}}},
         "approval": True, "default": True, "handler": tool_list_files,
+    },
+    "search_files": {
+        "description": "Search text files in the workspace for a substring (or a regular expression with regex=true). "
+                       "Returns matching lines as path:line: text.",
+        "parameters": {"type": "object", "required": ["pattern"], "properties": {
+            "pattern": {"type": "string", "description": "Text or regular expression to look for"},
+            "path": {"type": "string", "description": "Folder or file relative to the workspace; omit for everything"},
+            "glob": {"type": "string", "description": "Only files matching this name pattern, e.g. *.py"},
+            "regex": {"type": "boolean", "description": "Treat pattern as a regular expression"},
+            "case_sensitive": {"type": "boolean", "description": "Match case exactly (default: ignore case)"},
+            "max_results": {"type": "integer", "description": "Maximum matching lines to return (1-200, default 50)"}}},
+        "approval": True, "default": True, "handler": tool_search_files,
     },
     "read_file": {
         "description": "Read a UTF-8 text file from the workspace directory.",
@@ -829,6 +946,17 @@ TOOLS: dict[str, dict[str, Any]] = {
             "content": {"type": "string", "description": "The complete file content"}}},
         "approval": True, "default": True, "critical": True, "handler": tool_write_file,
     },
+    "edit_file": {
+        "description": "Replace an exact piece of text in a workspace file with new text. old_text must match the file "
+                       "exactly (including indentation) and occur once, unless replace_all is true. Prefer this over "
+                       "write_file for changes to existing files.",
+        "parameters": {"type": "object", "required": ["path", "old_text", "new_text"], "properties": {
+            "path": {"type": "string", "description": "File path relative to the workspace"},
+            "old_text": {"type": "string", "description": "The exact text to replace"},
+            "new_text": {"type": "string", "description": "The replacement text (empty string deletes old_text)"},
+            "replace_all": {"type": "boolean", "description": "Replace every occurrence instead of requiring a unique match"}}},
+        "approval": True, "default": True, "critical": True, "handler": tool_edit_file,
+    },
     "run_python": {
         "description": f"Run a Python script with the workspace as working directory ({TOOL_PYTHON_TIMEOUT_S} s limit). "
                        "Returns the exit code, stdout and stderr.",
@@ -839,7 +967,7 @@ TOOLS: dict[str, dict[str, Any]] = {
 }
 
 
-FILE_TOOLS = ("list_files", "read_file", "write_file")
+FILE_TOOLS = ("list_files", "read_file", "write_file", "edit_file", "search_files")
 
 
 def tool_specs(names: list[str], unrestricted: bool = False) -> list[dict[str, Any]]:
@@ -926,7 +1054,7 @@ def agent_instructions(ctx: ToolContext, names: list[str]) -> str:
         "Every tool call includes a 'purpose' argument: one short sentence for the user saying what the call does "
         "and why (for example 'Read config.json to find the port number').",
     ]
-    if any(n in names for n in ("list_files", "read_file", "write_file", "run_python")):
+    if any(n in names for n in FILE_TOOLS + ("run_python",)):
         if ctx.unrestricted:
             lines.append(f"File tools default to the workspace folder {ctx.workspace} for relative paths, "
                          "and absolute paths anywhere on this computer are allowed.")
