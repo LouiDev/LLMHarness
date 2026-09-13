@@ -692,19 +692,54 @@
     return d;
   }
   // Tool activity block. `live` is the gen id while streaming (enables Allow / Deny), null for saved messages.
-  const argsSummary = (args) => {
-    if (!args || typeof args !== "object") return "";
-    const first = Object.entries(args).find(([, v]) => typeof v === "string" && v.trim());
-    if (!first) return "";
-    const v = first[1].replace(/\s+/g, " ").trim();
-    return v.length > 70 ? v.slice(0, 67) + "…" : v;
-  };
+  // What a tool call is about, for the header: the path, query or URL rather than a blob of content.
+  const str = (v) => (typeof v === "string" ? v.trim() : v == null ? "" : String(v));
+  const lineCount = (s) => (s ? s.split(/\r?\n/).length : 0);
+  const shortPath = (p) => { const s = str(p).replace(/\\/g, "/"); return s.length > 60 ? "…" + s.slice(-57) : s; };
+  function toolHeadline(rec) {
+    const a = rec.arguments || {};
+    switch (rec.name) {
+      case "write_file": case "read_file": return shortPath(a.path);
+      case "list_files": return shortPath(a.path) || "workspace root";
+      case "web_search": return str(a.query);
+      case "fetch_page": return str(a.url);
+      case "run_python": return `${lineCount(str(a.code))} lines of Python`;
+      default: { const f = Object.values(a).find((v) => typeof v === "string" && v.trim()); return f ? f.replace(/\s+/g, " ").slice(0, 60) : ""; }
+    }
+  }
+  // One specific sentence for the approval prompt.
+  function toolDescription(rec) {
+    const a = rec.arguments || {};
+    const where = state.server.allow_outside_workspace ? "" : " in the workspace";
+    switch (rec.name) {
+      case "write_file": { const c = str(a.content); return `Create or overwrite ${str(a.path) || "a file"}${where} with ${lineCount(c)} line${lineCount(c) === 1 ? "" : "s"} (${c.length.toLocaleString()} characters).`; }
+      case "read_file": return `Read the file ${str(a.path) || "?"}${where}.`;
+      case "list_files": return a.path && str(a.path) !== "." ? `List the folder ${str(a.path)}${where}.` : "List the workspace folder.";
+      case "run_python": return `Run a ${lineCount(str(a.code))}-line Python script with the workspace as working directory. It can do anything your user account can.`;
+      case "web_search": return `Search the web for “${str(a.query)}”.`;
+      case "fetch_page": return `Download ${str(a.url)}.`;
+      default: return `Run the tool ${rec.name}.`;
+    }
+  }
+  // Arguments as labelled fields; long or multi-line text gets a block with real line breaks.
+  function renderArgs(args) {
+    const isBlock = (text) => /\n/.test(text) || text.length > 90;
+    const entries = Object.entries(args || {}).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v, null, 2)]);
+    if (!entries.length) return el("div", { class: "tool-args-empty", text: "No arguments" });
+    entries.sort((x, y) => Number(isBlock(x[1])) - Number(isBlock(y[1])));   // short fields first, long text last
+    return el("div", { class: "tool-args" }, ...entries.map(([k, text]) => {
+      const block = isBlock(text);
+      return el("div", { class: "tool-arg-row" + (block ? " block" : "") },
+        el("span", { class: "tool-arg-key", text: k }),
+        block ? el("pre", { text }) : el("span", { class: "tool-arg-val", text }));
+    }));
+  }
   const STATUS_LABEL = { pending: "waiting for approval", running: "running…", ok: "done", error: "failed", denied: "denied", stopped: "stopped" };
   function renderToolCall(rec, live) {
     const details = el("details", { class: `tool-call ${rec.status}`, "data-call": rec.id, open: rec.status === "pending" || null });
     const summary = el("summary", {},
       el("span", { class: "tool-name", text: rec.name }),
-      el("span", { class: "tool-arg", text: argsSummary(rec.arguments) }),
+      el("span", { class: "tool-arg", text: toolHeadline(rec), title: toolHeadline(rec) }),
       el("span", { class: `tool-status ${rec.status}`, text: STATUS_LABEL[rec.status] || rec.status }));
     details.append(summary);
     if (rec.approval && rec.status === "pending" && live) {
@@ -714,14 +749,11 @@
         catch (e) { toast(e.message, true); }
       };
       details.append(el("div", { class: "tool-ask-row" },
-        el("span", { text: rec.name === "write_file" || rec.name === "run_python"
-          ? (state.server.allow_outside_workspace ? "This changes files or runs code on this computer." : "This changes files or runs code in the workspace.")
-          : "The model wants to run this tool." }),
+        el("span", { text: toolDescription(rec) }),
         el("button", { class: "btn primary small", text: "Allow", onclick: () => answer(true) }),
         el("button", { class: "btn ghost small", text: "Deny", onclick: () => answer(false) })));
     }
-    const argText = rec.arguments && Object.keys(rec.arguments).length ? JSON.stringify(rec.arguments, null, 2) : "(no arguments)";
-    details.append(el("div", { class: "tool-section", text: "Arguments" }), el("pre", { text: argText }));
+    details.append(el("div", { class: "tool-section", text: "Arguments" }), renderArgs(rec.arguments));
     if (rec.result) {
       const r = rec.result.length > 4000 ? rec.result.slice(0, 4000) + `\n… (${rec.result.length.toLocaleString()} characters total)` : rec.result;
       details.append(el("div", { class: "tool-section", text: "Result" + (rec.seconds ? ` (${fmtSecs(rec.seconds)})` : "") }), el("pre", { text: r }));
