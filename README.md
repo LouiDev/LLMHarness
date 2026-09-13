@@ -59,8 +59,8 @@ the `OLLAMA_HOST` environment variable.
   you a question in the chat, `remember` keeps notes in `memory.md` that every agent reply sees,
   `recall_chats` searches earlier chats, `read_attachment` reads attached files on demand), files
   (`list_files`, `search_files`, `read_file`, `write_file`, `edit_file` with an old/new view,
-  `move_file`, `delete_file`) and system (`run_python`, `run_shell`, `open_path`). Shell and Python
-  are off by default. Web lookups run on their own; every other
+  `move_file`, `delete_file`) and system (`run_python`, `run_shell`, `open_path`). All tools are on
+  by default; untick some only to give a small model fewer options. Web lookups run on their own; every other
   tool shows an Allow / Deny prompt in the chat first, so nothing touches the disk without a
   click. File tools and Python are confined to a workspace folder (`workspace/` next to
   `server.py`, changeable in server settings). Each reply shows a collapsible list of the calls

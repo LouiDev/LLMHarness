@@ -1220,7 +1220,7 @@ TOOLS: dict[str, dict[str, Any]] = {
                        "(browser, editor, viewer).",
         "parameters": {"type": "object", "required": ["target"], "properties": {
             "target": {"type": "string", "description": "File path relative to the workspace, or a URL"}}},
-        "severity": 2, "approval": True, "default": False, "handler": tool_open_path,
+        "severity": 2, "approval": True, "default": True, "handler": tool_open_path,
     },
     "write_file": {
         "description": "Create or overwrite a text file in the workspace directory. Parent folders are created.",
@@ -1259,7 +1259,7 @@ TOOLS: dict[str, dict[str, Any]] = {
                        "Returns the exit code, stdout and stderr.",
         "parameters": {"type": "object", "required": ["code"], "properties": {
             "code": {"type": "string", "description": "Python source code to execute"}}},
-        "severity": 3, "approval": True, "default": False, "critical": True, "handler": tool_run_python,
+        "severity": 3, "approval": True, "default": True, "critical": True, "handler": tool_run_python,
     },
     "run_shell": {
         "description": f"Run a shell command ({'PowerShell' if os.name == 'nt' else 'sh'}) with the workspace as working "
@@ -1267,7 +1267,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "parameters": {"type": "object", "required": ["command"], "properties": {
             "command": {"type": "string", "description": "The command line to run"},
             "timeout": {"type": "integer", "description": "Seconds before the command is killed (max 300)"}}},
-        "severity": 3, "approval": True, "default": False, "critical": True, "handler": tool_run_shell,
+        "severity": 3, "approval": True, "default": True, "critical": True, "handler": tool_run_shell,
     },
 }
 

@@ -479,8 +479,10 @@
         el("input", { type: "checkbox", value: t.name }),
         el("span", { class: "tool-opt-name", text: t.name }),
         t.approval ? el("span", { class: "tool-ask", text: t.fixed ? "asks you" : "asks" }) : null))))));
-    ui.agentTools.append(el("button", { type: "button", class: "tool-expand", text: "Change approval rules in server settings…",
-      onclick: () => { closeAgentPopover(); openSettings("tools"); } }));
+    ui.agentTools.append(el("p", { class: "help tool-note" },
+      "All tools are on by default; anything that changes files or runs code asks you first. Untick tools only to give a small model fewer options to choose from. ",
+      el("button", { type: "button", class: "tool-expand inline", text: "Approval rules are in server settings.",
+        onclick: () => { closeAgentPopover(); openSettings("tools"); } })));
     for (const box of $$("input", ui.agentTools)) box.addEventListener("change", onPanelChange);
   }
   function panelToSettings() {

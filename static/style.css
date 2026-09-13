@@ -561,3 +561,5 @@ dialog.settings-window { width: min(820px, calc(100vw - 32px)); max-height: min(
 .tool-opt-name { font-family: var(--mono); font-size: 12.5px; }
 .tool-grid .tool-ask { margin-left: auto; font-size: 10.5px; color: var(--muted); font-family: var(--mono); border: 1px solid var(--line-strong); border-radius: 3px; padding: 0 4px; }
 @media (max-width: 520px) { .tool-grid { grid-template-columns: 1fr; } }
+.tool-note { margin: 2px 0 0; font-size: 12px; line-height: 1.45; }
+.tool-expand.inline { display: inline; font-size: inherit; padding: 0; color: var(--accent); }
