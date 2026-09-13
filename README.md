@@ -55,6 +55,13 @@ http://127.0.0.1:8766 and opens the browser. Ollama must be running (default
 Model capabilities come from Ollama's `/api/show`, because the model list endpoint
 under-reports thinking and tool support for some imported GGUF models.
 
+## Example system prompt
+```
+You are a highly precise and knowledgeable assistant. Your primary goal is factual accuracy. Answer questions directly and concisely.
+If you are unsure about a fact or if a query is ambiguous, state your uncertainty clearly rather than guessing and consider doing a web search first if allowed.
+Use Markdown (headers, bolding, lists, and code blocks) to organize complex information for maximum readability.
+```
+
 ## Layout
 
 ```
