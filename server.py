@@ -1129,58 +1129,36 @@ async def tool_ask_user(ctx: ToolContext, args: dict[str, Any]) -> str:
     # Never executed: the generation loop answers ask_user from the chat UI directly.
     raise ValueError("ask_user is handled by the chat")
 
+# severity: 0 no side effects, 1 reads the workspace, 2 changes files or notes, 3 executes code (UI ordering / grouping).
 # approval=False: runs without asking (web lookups are read-only and leave nothing on disk).
 # approval=True: the UI shows Allow / Deny and the reply waits for the answer.
 # default: whether the tool is on when agent tools are first enabled.
 TOOLS: dict[str, dict[str, Any]] = {
-    "web_search": {
-        "description": "Search the web for current information. Returns numbered results with title, URL and "
-                       "extracted page text. Cite results inline as [1], [2], ...",
-        "parameters": {"type": "object", "required": ["query"], "properties": {
-            "query": {"type": "string", "description": "A concise search query"},
-            "max_results": {"type": "integer", "description": "How many results to return (1-10)"}}},
-        "approval": False, "default": True, "handler": tool_web_search,
-    },
-    "fetch_page": {
-        "description": "Download one web page and return its readable text.",
-        "parameters": {"type": "object", "required": ["url"], "properties": {
-            "url": {"type": "string", "description": "Full http(s) URL"}}},
-        "approval": False, "default": True, "handler": tool_fetch_page,
-    },
     "get_datetime": {
         "description": "Return the current local date and time, the timezone, and the UTC time.",
         "parameters": {"type": "object", "properties": {}},
-        "approval": False, "default": True, "handler": tool_get_datetime,
+        "severity": 0, "approval": False, "default": True, "handler": tool_get_datetime,
     },
     "calculate": {
         "description": "Evaluate an arithmetic expression exactly (+ - * / // % ** and functions like sqrt, sin, log, "
                        "factorial; constants pi and e). Use it instead of doing arithmetic in your head.",
         "parameters": {"type": "object", "required": ["expression"], "properties": {
             "expression": {"type": "string", "description": "e.g. (1200 * 1.19) / 12 or sqrt(2) * pi"}}},
-        "approval": False, "default": True, "handler": tool_calculate,
+        "severity": 0, "approval": False, "default": True, "handler": tool_calculate,
     },
-    "ask_user": {
-        "description": "Ask the user a clarifying question and wait for the answer before continuing. Use it when the "
-                       "task is ambiguous instead of guessing. Optionally offer a few choices.",
-        "parameters": {"type": "object", "required": ["question"], "properties": {
-            "question": {"type": "string", "description": "The question, in one or two sentences"},
-            "options": {"type": "array", "items": {"type": "string"}, "description": "Up to 5 short answer choices"}}},
-        "approval": True, "fixed": True, "default": True, "handler": tool_ask_user,
-    },
-    "remember": {
-        "description": "Save a short note (a fact, preference or decision) to a persistent notes file that is shown to "
-                       "you at the start of every agent reply, across chats.",
-        "parameters": {"type": "object", "required": ["note"], "properties": {
-            "note": {"type": "string", "description": "One sentence to remember"}}},
-        "approval": True, "default": True, "handler": tool_remember,
-    },
-    "recall_chats": {
-        "description": "Search the user's saved chats for a keyword and return matching snippets with the chat title "
-                       "and date, to recall earlier conversations.",
+    "web_search": {
+        "description": "Search the web for current information. Returns numbered results with title, URL and "
+                       "extracted page text. Cite results inline as [1], [2], ...",
         "parameters": {"type": "object", "required": ["query"], "properties": {
-            "query": {"type": "string", "description": "Keyword or phrase to look for"},
-            "max_results": {"type": "integer", "description": "How many chats to return (1-25, default 8)"}}},
-        "approval": True, "default": True, "handler": tool_recall_chats,
+            "query": {"type": "string", "description": "A concise search query"},
+            "max_results": {"type": "integer", "description": "How many results to return (1-10)"}}},
+        "severity": 0, "approval": False, "default": True, "handler": tool_web_search,
+    },
+    "fetch_page": {
+        "description": "Download one web page and return its readable text.",
+        "parameters": {"type": "object", "required": ["url"], "properties": {
+            "url": {"type": "string", "description": "Full http(s) URL"}}},
+        "severity": 0, "approval": False, "default": True, "handler": tool_fetch_page,
     },
     "read_attachment": {
         "description": "Read the full text of a file the user attached to this chat. Call without a name to list the "
@@ -1188,13 +1166,29 @@ TOOLS: dict[str, dict[str, Any]] = {
         "parameters": {"type": "object", "properties": {
             "name": {"type": "string", "description": "Attachment file name (omit to list them)"},
             "start": {"type": "integer", "description": "Character offset to continue from"}}},
-        "approval": False, "default": True, "handler": tool_read_attachment,
+        "severity": 0, "approval": False, "default": True, "handler": tool_read_attachment,
+    },
+    "recall_chats": {
+        "description": "Search the user's saved chats for a keyword and return matching snippets with the chat title "
+                       "and date, to recall earlier conversations.",
+        "parameters": {"type": "object", "required": ["query"], "properties": {
+            "query": {"type": "string", "description": "Keyword or phrase to look for"},
+            "max_results": {"type": "integer", "description": "How many chats to return (1-25, default 8)"}}},
+        "severity": 0, "approval": True, "default": True, "handler": tool_recall_chats,
+    },
+    "ask_user": {
+        "description": "Ask the user a clarifying question and wait for the answer before continuing. Use it when the "
+                       "task is ambiguous instead of guessing. Optionally offer a few choices.",
+        "parameters": {"type": "object", "required": ["question"], "properties": {
+            "question": {"type": "string", "description": "The question, in one or two sentences"},
+            "options": {"type": "array", "items": {"type": "string"}, "description": "Up to 5 short answer choices"}}},
+        "severity": 0, "approval": True, "fixed": True, "default": True, "handler": tool_ask_user,
     },
     "list_files": {
         "description": "List files and folders in the workspace directory.",
         "parameters": {"type": "object", "properties": {
             "path": {"type": "string", "description": "Folder relative to the workspace; omit for the root"}}},
-        "approval": True, "default": True, "handler": tool_list_files,
+        "severity": 1, "approval": True, "default": True, "handler": tool_list_files,
     },
     "search_files": {
         "description": "Search text files in the workspace for a substring (or a regular expression with regex=true). "
@@ -1206,20 +1200,34 @@ TOOLS: dict[str, dict[str, Any]] = {
             "regex": {"type": "boolean", "description": "Treat pattern as a regular expression"},
             "case_sensitive": {"type": "boolean", "description": "Match case exactly (default: ignore case)"},
             "max_results": {"type": "integer", "description": "Maximum matching lines to return (1-200, default 50)"}}},
-        "approval": True, "default": True, "handler": tool_search_files,
+        "severity": 1, "approval": True, "default": True, "handler": tool_search_files,
     },
     "read_file": {
         "description": "Read a UTF-8 text file from the workspace directory.",
         "parameters": {"type": "object", "required": ["path"], "properties": {
             "path": {"type": "string", "description": "File path relative to the workspace"}}},
-        "approval": True, "default": True, "handler": tool_read_file,
+        "severity": 1, "approval": True, "default": True, "handler": tool_read_file,
+    },
+    "remember": {
+        "description": "Save a short note (a fact, preference or decision) to a persistent notes file that is shown to "
+                       "you at the start of every agent reply, across chats.",
+        "parameters": {"type": "object", "required": ["note"], "properties": {
+            "note": {"type": "string", "description": "One sentence to remember"}}},
+        "severity": 2, "approval": True, "default": True, "handler": tool_remember,
+    },
+    "open_path": {
+        "description": "Open a workspace file or an http(s) URL on the user's screen with the default application "
+                       "(browser, editor, viewer).",
+        "parameters": {"type": "object", "required": ["target"], "properties": {
+            "target": {"type": "string", "description": "File path relative to the workspace, or a URL"}}},
+        "severity": 2, "approval": True, "default": False, "handler": tool_open_path,
     },
     "write_file": {
         "description": "Create or overwrite a text file in the workspace directory. Parent folders are created.",
         "parameters": {"type": "object", "required": ["path", "content"], "properties": {
             "path": {"type": "string", "description": "File path relative to the workspace"},
             "content": {"type": "string", "description": "The complete file content"}}},
-        "approval": True, "default": True, "critical": True, "handler": tool_write_file,
+        "severity": 2, "approval": True, "default": True, "critical": True, "handler": tool_write_file,
     },
     "edit_file": {
         "description": "Replace an exact piece of text in a workspace file with new text. old_text must match the file "
@@ -1230,7 +1238,7 @@ TOOLS: dict[str, dict[str, Any]] = {
             "old_text": {"type": "string", "description": "The exact text to replace"},
             "new_text": {"type": "string", "description": "The replacement text (empty string deletes old_text)"},
             "replace_all": {"type": "boolean", "description": "Replace every occurrence instead of requiring a unique match"}}},
-        "approval": True, "default": True, "critical": True, "handler": tool_edit_file,
+        "severity": 2, "approval": True, "default": True, "critical": True, "handler": tool_edit_file,
     },
     "move_file": {
         "description": "Move or rename a file or folder inside the workspace directory. Parent folders are created.",
@@ -1238,20 +1246,20 @@ TOOLS: dict[str, dict[str, Any]] = {
             "source": {"type": "string", "description": "Existing path relative to the workspace"},
             "destination": {"type": "string", "description": "New path (or an existing folder to move into)"},
             "overwrite": {"type": "boolean", "description": "Replace the destination if it already exists"}}},
-        "approval": True, "default": True, "critical": True, "handler": tool_move_file,
+        "severity": 2, "approval": True, "default": True, "critical": True, "handler": tool_move_file,
     },
     "delete_file": {
         "description": "Delete a file (or an empty folder) in the workspace directory.",
         "parameters": {"type": "object", "required": ["path"], "properties": {
             "path": {"type": "string", "description": "Path relative to the workspace"}}},
-        "approval": True, "default": True, "critical": True, "handler": tool_delete_file,
+        "severity": 2, "approval": True, "default": True, "critical": True, "handler": tool_delete_file,
     },
     "run_python": {
         "description": f"Run a Python script with the workspace as working directory ({TOOL_PYTHON_TIMEOUT_S} s limit). "
                        "Returns the exit code, stdout and stderr.",
         "parameters": {"type": "object", "required": ["code"], "properties": {
             "code": {"type": "string", "description": "Python source code to execute"}}},
-        "approval": True, "default": False, "critical": True, "handler": tool_run_python,
+        "severity": 3, "approval": True, "default": False, "critical": True, "handler": tool_run_python,
     },
     "run_shell": {
         "description": f"Run a shell command ({'PowerShell' if os.name == 'nt' else 'sh'}) with the workspace as working "
@@ -1259,14 +1267,7 @@ TOOLS: dict[str, dict[str, Any]] = {
         "parameters": {"type": "object", "required": ["command"], "properties": {
             "command": {"type": "string", "description": "The command line to run"},
             "timeout": {"type": "integer", "description": "Seconds before the command is killed (max 300)"}}},
-        "approval": True, "default": False, "critical": True, "handler": tool_run_shell,
-    },
-    "open_path": {
-        "description": "Open a workspace file or an http(s) URL on the user's screen with the default application "
-                       "(browser, editor, viewer).",
-        "parameters": {"type": "object", "required": ["target"], "properties": {
-            "target": {"type": "string", "description": "File path relative to the workspace, or a URL"}}},
-        "approval": True, "default": False, "handler": tool_open_path,
+        "severity": 3, "approval": True, "default": False, "critical": True, "handler": tool_run_shell,
     },
 }
 
@@ -1348,7 +1349,7 @@ def clean_tool_policies(raw: Any) -> dict[str, str]:
 def public_tools(settings: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"name": n, "description": t["description"], "approval": tool_needs_approval(n, settings),
              "default_approval": t["approval"], "critical": bool(t.get("critical")), "fixed": bool(t.get("fixed")),
-             "default": t["default"]}
+             "severity": int(t.get("severity", 0)), "default": t["default"]}
             for n, t in TOOLS.items()]
 
 

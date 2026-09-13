@@ -359,7 +359,13 @@
   // ------------------------------------------------------------------ tool approval policies
   function buildPolicyRows(policies) {
     const box = $("#s-policies");
-    box.replaceChildren(...state.tools.map((t) => {
+    const rows = [];
+    for (const [sev, tools] of bySeverity(state.tools)) {
+      rows.push(el("div", { class: "policy-group", text: SEVERITY_LABEL[sev] || "Other" }));
+      rows.push(...tools.map(policyRow));
+    }
+    box.replaceChildren(...rows);
+    function policyRow(t) {
       const sel = el("select", { "data-tool": t.name },
         el("option", { value: "ask", text: "Asks first" }),
         el("option", { value: "auto", text: "Runs on its own" }));
@@ -378,7 +384,7 @@
       };
       const name = el("span", { class: "policy-name", title: t.description }, t.name, TOOL_BADGE[t.name] ? el("span", { class: "tool-badge", text: TOOL_BADGE[t.name] }) : null);
       return el("div", { class: "policy-row" }, name, sel);
-    }));
+    }
   }
   function readPolicyRows() {
     const out = {};
@@ -462,11 +468,17 @@
     syncPresetSelection();
     renderQuickChips();
   }
+  const SEVERITY_LABEL = ["No side effects", "Reads the workspace", "Changes files or notes", "Runs code"];
+  const bySeverity = (tools) => { const g = new Map(); for (const t of tools) { const k = t.severity ?? 0; if (!g.has(k)) g.set(k, []); g.get(k).push(t); } return [...g.entries()].sort((a, b) => a[0] - b[0]); };
   function buildAgentTools() {
-    ui.agentTools.replaceChildren(...state.tools.map((t) => el("label", { class: "check tool-opt", title: t.description },
-      el("input", { type: "checkbox", value: t.name }),
-      el("span", { text: t.name }),
-      el("span", { class: "tool-ask" + (!t.approval && t.default_approval ? " auto-note" : ""), text: t.fixed ? "asks you" : t.approval ? "asks first" : "runs on its own" }))));
+    ui.agentTools.replaceChildren(...bySeverity(state.tools).map(([sev, tools]) => el("div", { class: "tool-group" },
+      el("div", { class: "tool-group-head" }, el("span", { text: SEVERITY_LABEL[sev] || "Other" }),
+        el("button", { type: "button", class: "tool-expand", text: "all", onclick: () => { for (const b of $$("input", ui.agentTools)) if (tools.some((t) => t.name === b.value)) b.checked = true; onPanelChange(); } }),
+        el("button", { type: "button", class: "tool-expand", text: "none", onclick: () => { for (const b of $$("input", ui.agentTools)) if (tools.some((t) => t.name === b.value)) b.checked = false; onPanelChange(); } })),
+      el("div", { class: "tool-grid" }, ...tools.map((t) => el("label", { class: "check tool-opt", title: `${t.description}\n\n${t.fixed ? "Always asks you." : t.approval ? "Asks first (Allow / Deny in the chat)." : "Runs on its own."}` },
+        el("input", { type: "checkbox", value: t.name }),
+        el("span", { class: "tool-opt-name", text: t.name }),
+        t.approval ? el("span", { class: "tool-ask", text: t.fixed ? "asks you" : "asks" }) : null))))));
     ui.agentTools.append(el("button", { type: "button", class: "tool-expand", text: "Change approval rules in server settings…",
       onclick: () => { closeAgentPopover(); openSettings("tools"); } }));
     for (const box of $$("input", ui.agentTools)) box.addEventListener("change", onPanelChange);
@@ -560,9 +572,9 @@
       : !modelHasTools ? `${m.name} does not report tool support; replies stay in chat mode`
       : !tools.length ? "No tools selected"
       : `${tools.length} tool${tools.length === 1 ? "" : "s"}${asking ? `, ${asking} ask${asking === 1 ? "s" : ""} before running` : ""}`;
-    ui.agentHelp.textContent = modelHasTools
-      ? "Tools marked \"asks first\" show an Allow / Deny prompt in the chat before they run; the rule per tool is set in server settings. File tools stay inside the workspace folder."
-      : `${m.name} does not report tool support; agent mode has no effect until you pick a model that does.`;
+    // The popover explains itself through the tags and the settings link; the help line only appears for a model without tools.
+    ui.agentHelp.hidden = modelHasTools;
+    ui.agentHelp.textContent = modelHasTools ? "" : `${m.name} does not report tool support; agent mode has no effect until you pick a model that does.`;
     if (!agent) closeAgentPopover();
   }
   function setMode(mode) {

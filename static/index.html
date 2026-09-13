@@ -270,14 +270,24 @@
           </label>
           <p class="help">The folder the agent's file tools list, read and write in, and where Python runs. Leave empty for the default.</p>
           <label class="check"><input type="checkbox" id="s-outside"> <span>Allow absolute paths outside the workspace</span></label>
-          <p class="help warn-text">With this on, approved file tool calls can read and write anywhere your user account can. Every such call still asks for approval in the chat unless its rule under Tool approval says otherwise.</p>
+          <div class="notice">
+            <span class="notice-icon" aria-hidden="true">i</span>
+            <div>With this on, approved file tool calls can read and write anywhere your user account can. Each call still asks for approval in the chat unless its rule under Tool approval says otherwise.</div>
+          </div>
         </section>
 
         <section class="settings-panel" data-tab="tools" role="tabpanel">
           <h3>Tool approval</h3>
-          <p class="help">Whether a tool pauses the reply for an Allow / Deny prompt in the chat or runs as soon as the model calls it.</p>
+          <div class="notice">
+            <span class="notice-icon" aria-hidden="true">i</span>
+            <div>
+              <b>Think twice before letting tools run on their own.</b> Local models, and heavily quantized ones in
+              particular, sometimes call tools with wrong paths or made-up content. Tools are listed from harmless to
+              risky; keep anything that changes files or runs code on "asks first" unless you trust the model and have backups.
+            </div>
+          </div>
+          <p class="help">"Asks first" pauses the reply for an Allow / Deny prompt in the chat; "runs on its own" executes the call as soon as the model makes it.</p>
           <div class="policy-list" id="s-policies"></div>
-          <p class="help warn-text">"Runs on its own" lets the model use a tool without asking you. Local models, and heavily quantized ones in particular, sometimes call tools with wrong paths or hallucinated content, so keep anything that writes files or runs code on "asks first" unless you trust the model and have backups.</p>
         </section>
 
       </div>
