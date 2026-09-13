@@ -200,7 +200,7 @@
     searchMode: $("#search-mode"), searchMax: $("#search-max"), searchFetch: $("#search-fetch"),
     agentTools: $("#agent-tools"), agentSteps: $("#agent-steps"), agentHelp: $("#agent-help"),
     modeSwitch: $("#mode-switch"), modeNote: $("#mode-note"), agentOptionsBtn: $("#agent-options-btn"), agentPopover: $("#agent-popover"),
-    wsPath: $("#agent-ws-path"), wsChange: $("#agent-ws-change"), wsReset: $("#agent-ws-reset"),
+    wsBtn: $("#ws-btn"), wsBtnName: $("#ws-btn-name"),
     quickThink: $("#quick-think"), quickSearch: $("#quick-search"), attachLabel: $("#attach-label"), attach: $("#attach"), attachments: $("#attachments"), attNote: $("#att-note"), composer: $("#composer"),
   };
 
@@ -583,28 +583,27 @@
     ui.modeNote.textContent = !agent ? ""
       : !modelHasTools ? `${m.name} does not report tool support; replies stay in chat mode`
       : !tools.length ? "No tools selected"
-      : `${tools.length} tool${tools.length === 1 ? "" : "s"}${asking ? `, ${asking} ask${asking === 1 ? "s" : ""} before running` : ""}${s.agent?.workspace ? ` · in ${folderName(s.agent.workspace)}` : ""}`;
-    renderWorkspaceRow();
+      : `${tools.length} tool${tools.length === 1 ? "" : "s"}${asking ? `, ${asking} ask${asking === 1 ? "s" : ""} before running` : ""}`;
+    renderWorkspaceButton(agent);
     // The popover explains itself through the tags and the settings link; the help line only appears for a model without tools.
     ui.agentHelp.hidden = modelHasTools;
     ui.agentHelp.textContent = modelHasTools ? "" : `${m.name} does not report tool support; agent mode has no effect until you pick a model that does.`;
     if (!agent) closeAgentPopover();
   }
   const folderName = (p) => { const parts = String(p).replace(/[\\/]+$/, "").split(/[\\/]/); return parts[parts.length - 1] || p; };
-  function renderWorkspaceRow() {
+  function renderWorkspaceButton(agent) {
     const ws = state.chat?.settings.agent?.workspace || "";
-    ui.wsPath.textContent = ws || `Default (${state.workspace ? folderName(state.workspace) : "workspace"})`;
-    ui.wsPath.title = ws || state.workspace || "";
-    ui.wsPath.classList.toggle("is-default", !ws);
-    ui.wsReset.hidden = !ws;
+    ui.wsBtn.hidden = !agent;
+    ui.wsBtnName.textContent = ws ? folderName(ws) : `default${state.workspace ? ` (${folderName(state.workspace)})` : ""}`;
+    ui.wsBtn.classList.toggle("custom", !!ws);
+    ui.wsBtn.title = (ws || state.workspace || "") + "\nFolder the agent's file tools and scripts work in. Click to change.";
   }
   function setWorkspace(path) {
     if (!state.chat) return;
     state.chat.settings.agent = { ...(state.chat.settings.agent || {}), workspace: path || "" };
     onPanelChange();
   }
-  ui.wsReset.onclick = () => setWorkspace("");
-  ui.wsChange.onclick = () => openFolderDialog(state.chat?.settings.agent?.workspace || "");
+  ui.wsBtn.onclick = () => openFolderDialog(state.chat?.settings.agent?.workspace || "");
 
   // ------------------------------------------------------------------ folder picker
   const fd = { dialog: $("#folder-dialog"), path: $("#fd-path"), list: $("#fd-list"), shortcuts: $("#fd-shortcuts"), recent: $("#fd-recent"), recentHead: $("#fd-recent-head"), status: $("#fd-status"), up: $("#fd-up"), use: $("#fd-use") };
@@ -643,6 +642,7 @@
     toast(fdCurrent.is_default ? "Using the default workspace" : `Workspace: ${fdCurrent.path}`);
   };
   $("#fd-cancel").onclick = () => fd.dialog.close();
+  $("#fd-default").onclick = () => { setWorkspace(""); fd.dialog.close(); toast("Using the default workspace"); };
   $("#fd-close").onclick = () => fd.dialog.close();
 
   function setMode(mode) {

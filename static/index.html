@@ -66,6 +66,9 @@
           <button type="button" class="mode-btn" data-mode="agent" role="tab" title="The model can call tools; file changes ask for approval">Agent</button>
         </div>
         <button type="button" class="btn ghost small mode-options" id="agent-options-btn" aria-haspopup="dialog" aria-expanded="false">Agent options</button>
+        <button type="button" class="btn ghost small mode-options ws-btn" id="ws-btn" aria-haspopup="dialog" title="Folder the agent's file tools and scripts work in" hidden>
+          <span class="ws-btn-label">Workspace</span><span class="ws-btn-name" id="ws-btn-name"></span>
+        </button>
         <span class="mode-note" id="mode-note"></span>
       </div>
       <div class="agent-popover" id="agent-popover" role="dialog" aria-label="Agent options" hidden>
@@ -74,12 +77,6 @@
           <button type="button" class="icon-btn" id="agent-popover-close" title="Close" aria-label="Close">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l10 10M12 2L2 12"/></svg>
           </button>
-        </div>
-        <div class="ws-row">
-          <span class="ws-label">Workspace</span>
-          <span class="ws-path" id="agent-ws-path"></span>
-          <button type="button" class="btn ghost small" id="agent-ws-change">Change…</button>
-          <button type="button" class="btn ghost small" id="agent-ws-reset" title="Use the default workspace from server settings" hidden>Default</button>
         </div>
         <div class="tool-list" id="agent-tools"></div>
         <label class="field inline">
@@ -334,6 +331,7 @@
     </div>
     <footer class="settings-foot">
       <span class="help folder-status" id="fd-status"></span>
+      <button type="button" class="btn ghost" id="fd-default" title="Use the default workspace from server settings">Use default</button>
       <button type="button" class="btn ghost" id="fd-cancel">Cancel</button>
       <button type="button" class="btn primary" id="fd-use">Use this folder</button>
     </footer>
