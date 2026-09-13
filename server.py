@@ -57,6 +57,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "helper_model": "",               # optional small model for search planning and titles ("" = the chat model)
     "workspace_dir": "",              # folder the agent's file tools may touch ("" = ./workspace)
     "allow_outside_workspace": False, # let file tools use absolute paths anywhere on this computer
+    "tool_policies": {},              # per tool: "ask" (Allow / Deny in the chat) or "auto"; missing = the tool's default
     "chat_defaults": {},              # settings new chats start with ("Use as defaults" in the controls panel)
     "system_prompt_presets": [
         {"name": "Helpful assistant",
@@ -826,14 +827,14 @@ TOOLS: dict[str, dict[str, Any]] = {
         "parameters": {"type": "object", "required": ["path", "content"], "properties": {
             "path": {"type": "string", "description": "File path relative to the workspace"},
             "content": {"type": "string", "description": "The complete file content"}}},
-        "approval": True, "default": True, "handler": tool_write_file,
+        "approval": True, "default": True, "critical": True, "handler": tool_write_file,
     },
     "run_python": {
         "description": f"Run a Python script with the workspace as working directory ({TOOL_PYTHON_TIMEOUT_S} s limit). "
                        "Returns the exit code, stdout and stderr.",
         "parameters": {"type": "object", "required": ["code"], "properties": {
             "code": {"type": "string", "description": "Python source code to execute"}}},
-        "approval": True, "default": False, "handler": tool_run_python,
+        "approval": True, "default": False, "critical": True, "handler": tool_run_python,
     },
 }
 
@@ -890,8 +891,29 @@ async def summarize_tool_call(client: httpx.AsyncClient, model: str, caps: list[
     return raw.splitlines()[0].strip().strip('"')[:200] if raw else ""
 
 
-def public_tools() -> list[dict[str, Any]]:
-    return [{"name": n, "description": t["description"], "approval": t["approval"], "default": t["default"]}
+TOOL_POLICIES = ("ask", "auto")
+
+
+def tool_needs_approval(name: str, settings: dict[str, Any]) -> bool:
+    """Effective approval rule: the server-wide policy if one is set, else the tool's default."""
+    spec = TOOLS.get(name)
+    if not spec:
+        return False
+    policy = (settings.get("tool_policies") or {}).get(name)
+    if policy in TOOL_POLICIES:
+        return policy == "ask"
+    return bool(spec["approval"])
+
+
+def clean_tool_policies(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        return {}
+    return {n: p for n, p in raw.items() if n in TOOLS and p in TOOL_POLICIES}
+
+
+def public_tools(settings: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{"name": n, "description": t["description"], "approval": tool_needs_approval(n, settings),
+             "default_approval": t["approval"], "critical": bool(t.get("critical")), "default": t["default"]}
             for n, t in TOOLS.items()]
 
 
@@ -1242,7 +1264,7 @@ async def generate_stream(req: dict[str, Any], request: Request) -> AsyncIterato
                         args = dict(args)
                         purpose = str(args.pop(PURPOSE_FIELD, "") or "").strip()
                     spec = TOOLS.get(name)
-                    needs_approval = bool(spec and spec["approval"])
+                    needs_approval = tool_needs_approval(name, settings)
                     if not purpose and needs_approval:
                         # The model skipped the intent line; let the helper model write one before we ask the user.
                         yield sse({"type": "status", "phase": "approval", "detail": f"Summarising the {name} call"})
@@ -1467,6 +1489,7 @@ async def get_settings() -> JSONResponse:
 async def put_settings(body: dict[str, Any]) -> JSONResponse:
     data = load_settings()
     data.update({k: v for k, v in body.items() if k in DEFAULT_SETTINGS})
+    data["tool_policies"] = clean_tool_policies(data.get("tool_policies"))
     save_settings(data)
     return JSONResponse(data)
 
@@ -1547,7 +1570,7 @@ async def answer_tool_call(gen_id: str, call_id: str, body: dict[str, Any]) -> J
 @app.get("/api/tools")
 async def list_tools() -> JSONResponse:
     settings = load_settings()
-    return JSONResponse({"tools": public_tools(), "workspace": str(workspace_dir(settings)),
+    return JSONResponse({"tools": public_tools(settings), "workspace": str(workspace_dir(settings)),
                          "allow_outside_workspace": bool(settings.get("allow_outside_workspace"))})
 
 

@@ -62,7 +62,9 @@ the `OLLAMA_HOST` environment variable.
   made with their arguments and results, and the loop stops after a configurable number of
   steps. Models that do not report tool support answer normally with the tools skipped. A server
   setting can lift the workspace restriction so file tools accept absolute paths anywhere on
-  the machine; the approval prompt stays in place either way.
+  the machine; the approval prompt stays in place either way. Server settings also hold a per-tool
+  approval rule ("asks first" or "runs on its own"), shared by every chat; switching a file-writing
+  or code-running tool to run unattended asks for an extra confirmation.
 - **LaTeX math** rendered with KaTeX: `$...$` and `\(...\)` inline, `$$...$$` and `\[...\]` as
   display formulas. Code blocks are left untouched.
 - Dark and light themes.

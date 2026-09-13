@@ -46,6 +46,24 @@
     toastTimer = setTimeout(() => { t.hidden = true; }, isError ? 6000 : 2600);
   }
 
+  // Styled confirmation popup; resolves true when the user confirms.
+  function askConfirm(title, text, okLabel = "Confirm") {
+    const dlg = $("#confirm-dialog");
+    $("#confirm-title").textContent = title;
+    $("#confirm-text").textContent = text;
+    $("#confirm-ok").textContent = okLabel;
+    return new Promise((resolve) => {
+      const done = (v) => { dlg.close(); resolve(v); cleanup(); };
+      const ok = () => done(true), cancel = () => done(false);
+      const onClose = () => { resolve(false); cleanup(); };
+      const cleanup = () => { $("#confirm-ok").removeEventListener("click", ok); $("#confirm-cancel").removeEventListener("click", cancel); dlg.removeEventListener("close", onClose); };
+      $("#confirm-ok").addEventListener("click", ok);
+      $("#confirm-cancel").addEventListener("click", cancel);
+      dlg.addEventListener("close", onClose);
+      dlg.showModal();
+    });
+  }
+
   // ------------------------------------------------------------------ markdown
   const canMarkdown = typeof marked !== "undefined" && typeof DOMPurify !== "undefined";
   if (canMarkdown) {
@@ -294,6 +312,7 @@
     $("#s-helper").value = state.models.some((m) => m.name === state.server.helper_model) ? state.server.helper_model : "";
     $("#s-workspace").value = state.server.workspace_dir || "";
     $("#s-outside").checked = !!state.server.allow_outside_workspace;
+    buildPolicyRows(state.server.tool_policies || {});
     $("#s-test-result").textContent = "";
     $("#s-searxng-wrap").hidden = $("#s-provider").value !== "searxng";
     dialog.showModal();
@@ -307,7 +326,7 @@
         search_provider: $("#s-provider").value, searxng_url: $("#s-searxng").value.trim(),
         search_region: $("#s-region").value.trim() || "wt-wt", keep_alive: $("#s-keepalive").value.trim() || "5m",
         helper_model: $("#s-helper").value, workspace_dir: $("#s-workspace").value.trim(),
-        allow_outside_workspace: $("#s-outside").checked,
+        allow_outside_workspace: $("#s-outside").checked, tool_policies: readPolicyRows(),
       } });
       dialog.close(); toast("Settings saved");
       loadTools();
@@ -323,6 +342,35 @@
       out.textContent = r.length ? `Working: ${r.length} results, first from ${hostOf(r[0].url)}` : "The provider returned no results.";
     } catch (err) { out.textContent = `Failed: ${err.message}`; }
   };
+
+  // ------------------------------------------------------------------ tool approval policies
+  function buildPolicyRows(policies) {
+    const box = $("#s-policies");
+    box.replaceChildren(...state.tools.map((t) => {
+      const sel = el("select", { "data-tool": t.name },
+        el("option", { value: "ask", text: "Asks first" }),
+        el("option", { value: "auto", text: "Runs on its own" }));
+      sel.value = policies[t.name] || (t.default_approval ? "ask" : "auto");
+      const risky = () => sel.value === "auto" && (t.critical || t.default_approval);   // web tools default to auto; no alarm for those
+      sel.classList.toggle("auto", risky());
+      sel.onchange = async () => {
+        if (sel.value === "auto" && t.critical) {
+          const ok = await askConfirm(`Let ${t.name} run without asking?`,
+            `The model could then ${t.name === "run_python" ? "execute arbitrary Python code" : "create or overwrite files"} on this computer with no chance for you to check the call first. A misfiring or heavily quantized model can do real damage this way. You can change this back at any time.`,
+            "Yes, run without asking");
+          if (!ok) sel.value = "ask";
+        }
+        sel.classList.toggle("auto", risky());
+      };
+      const name = el("span", { class: "policy-name", title: t.description }, t.name, TOOL_BADGE[t.name] ? el("span", { class: "tool-badge", text: TOOL_BADGE[t.name] }) : null);
+      return el("div", { class: "policy-row" }, name, sel);
+    }));
+  }
+  function readPolicyRows() {
+    const out = {};
+    for (const sel of $$("#s-policies select")) out[sel.dataset.tool] = sel.value;
+    return out;
+  }
 
   // ------------------------------------------------------------------ presets
   function renderPresets() {
@@ -404,7 +452,9 @@
     ui.agentTools.replaceChildren(...state.tools.map((t) => el("label", { class: "check tool-opt", title: t.description },
       el("input", { type: "checkbox", value: t.name }),
       el("span", { text: t.name }),
-      el("span", { class: "tool-ask", text: t.approval ? "asks first" : "runs on its own" }))));
+      el("span", { class: "tool-ask" + (!t.approval && t.default_approval ? " auto-note" : ""), text: t.approval ? "asks first" : "runs on its own" }))));
+    ui.agentTools.append(el("button", { type: "button", class: "tool-expand", text: "Change approval rules in server settings…",
+      onclick: () => { closeAgentPopover(); $("#open-settings").click(); } }));
     for (const box of $$("input", ui.agentTools)) box.addEventListener("change", onPanelChange);
   }
   function panelToSettings() {
@@ -497,7 +547,7 @@
       : !tools.length ? "No tools selected"
       : `${tools.length} tool${tools.length === 1 ? "" : "s"}${asking ? `, ${asking} ask${asking === 1 ? "s" : ""} before running` : ""}`;
     ui.agentHelp.textContent = modelHasTools
-      ? "Web lookups run on their own. Every other tool shows an Allow / Deny prompt in the chat before it runs. File tools stay inside the workspace folder set in server settings."
+      ? "Tools marked \"asks first\" show an Allow / Deny prompt in the chat before they run; the rule per tool is set in server settings. File tools stay inside the workspace folder."
       : `${m.name} does not report tool support; agent mode has no effect until you pick a model that does.`;
     if (!agent) closeAgentPopover();
   }

@@ -239,6 +239,9 @@
     <p class="help">The folder the agent's file tools list, read and write in, and where Python runs. Leave empty for the default.</p>
     <label class="check"><input type="checkbox" id="s-outside"> <span>Allow absolute paths outside the workspace</span></label>
     <p class="help warn-text">With this on, approved file tool calls can read and write anywhere your user account can. Every such call still asks for approval in the chat.</p>
+    <h3 class="dialog-sub">Tool approval</h3>
+    <div class="policy-list" id="s-policies"></div>
+    <p class="help warn-text">"Runs on its own" lets the model use a tool without asking you. Local models, and heavily quantized ones in particular, sometimes call tools with wrong paths or hallucinated content, so keep anything that writes files or runs code on "asks first" unless you trust the model and have backups.</p>
     <div class="row-actions">
       <button type="button" class="btn ghost small" id="s-test-search">Test search</button>
       <span class="help" id="s-test-result"></span>
@@ -246,6 +249,18 @@
     <div class="dialog-actions">
       <button type="button" class="btn ghost" id="s-cancel">Cancel</button>
       <button type="submit" class="btn primary" id="s-save">Save settings</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============================== confirmation dialog ============================== -->
+<dialog id="confirm-dialog">
+  <form method="dialog" class="dialog-body confirm-body">
+    <h2 id="confirm-title">Are you sure?</h2>
+    <p class="help" id="confirm-text"></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" id="confirm-cancel">Cancel</button>
+      <button type="button" class="btn primary danger" id="confirm-ok">Confirm</button>
     </div>
   </form>
 </dialog>
