@@ -60,11 +60,6 @@
     </section>
 
     <footer class="composer-wrap">
-      <div class="readout" id="readout" hidden>
-        <span class="readout-phase" id="readout-phase">Waiting for the model</span>
-        <span class="readout-metrics" id="readout-metrics"></span>
-        <div class="activity" aria-hidden="true"><div class="activity-bar"></div></div>
-      </div>
       <div class="mode-bar" id="mode-bar">
         <div class="mode-switch" id="mode-switch" role="tablist" aria-label="Mode">
           <button type="button" class="mode-btn" data-mode="chat" role="tab" title="The model only writes replies">Chat</button>
@@ -88,6 +83,11 @@
         <p class="help" id="agent-help"></p>
       </div>
       <div class="composer" id="composer">
+        <div class="readout" id="readout" hidden>
+          <span class="readout-phase" id="readout-phase">Waiting for the model</span>
+          <span class="readout-metrics" id="readout-metrics"></span>
+          <div class="activity" aria-hidden="true"><div class="activity-bar"></div></div>
+        </div>
         <div class="attachments" id="attachments"></div>
         <div class="att-note" id="att-note" hidden></div>
         <textarea id="input" rows="1" placeholder="Message the model" aria-label="Message"></textarea>

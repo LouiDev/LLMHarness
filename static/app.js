@@ -734,7 +734,7 @@
   // Tool activity block. `live` is the gen id while streaming (enables Allow / Deny), null for saved messages.
   // What a tool call is about, for the header: the path, query or URL rather than a blob of content.
   const str = (v) => (typeof v === "string" ? v.trim() : v == null ? "" : String(v));
-  const lineCount = (s) => (s ? s.split(/\r?\n/).length : 0);
+  const lineCount = (s) => (s ? s.replace(/\r?\n$/, "").split(/\r?\n/).length : 0);
   const shortPath = (p) => { const s = str(p).replace(/\\/g, "/"); return s.length > 60 ? "…" + s.slice(-57) : s; };
   function toolHeadline(rec) {
     const a = rec.arguments || {};
@@ -755,7 +755,7 @@
       case "write_file": { const c = str(a.content); return `Create or overwrite ${str(a.path) || "a file"}${where} with ${lineCount(c)} line${lineCount(c) === 1 ? "" : "s"} (${c.length.toLocaleString()} characters).`; }
       case "read_file": return `Read the file ${str(a.path) || "?"}${where}.`;
       case "list_files": return a.path && str(a.path) !== "." ? `List the folder ${str(a.path)}${where}.` : "List the workspace folder.";
-      case "run_python": return `Run a ${lineCount(str(a.code))}-line Python script with the workspace as working directory. It can do anything your user account can.`;
+      case "run_python": return `Run a ${lineCount(str(a.code))}-line Python script with the workspace as working directory.`;
       case "web_search": return `Search the web for “${str(a.query)}”.`;
       case "fetch_page": return `Download ${str(a.url)}.`;
       default: return `Run the tool ${rec.name}.`;
@@ -769,35 +769,49 @@
     entries.sort((x, y) => Number(isBlock(x[1])) - Number(isBlock(y[1])));   // short fields first, long text last
     return el("div", { class: "tool-args" }, ...entries.map(([k, text]) => {
       const block = isBlock(text);
-      return el("div", { class: "tool-arg-row" + (block ? " block" : "") },
-        el("span", { class: "tool-arg-key", text: k }),
-        block ? el("pre", { text }) : el("span", { class: "tool-arg-val", text }));
+      let body;
+      if (block) {
+        const long = lineCount(text) > 8;
+        body = el("pre", { class: long ? "clamped" : "", text });
+        const row = el("div", { class: "tool-arg-row block" }, el("span", { class: "tool-arg-key", text: k }), body);
+        if (long) {
+          const btn = el("button", { type: "button", class: "tool-expand", text: `Show all ${lineCount(text)} lines` });
+          btn.onclick = () => { const open = body.classList.toggle("clamped"); btn.textContent = open ? `Show all ${lineCount(text)} lines` : "Show less"; };
+          row.append(btn);
+        }
+        return row;
+      }
+      return el("div", { class: "tool-arg-row" }, el("span", { class: "tool-arg-key", text: k }), el("span", { class: "tool-arg-val", text }));
     }));
   }
-  const STATUS_LABEL = { pending: "waiting for approval", running: "running…", ok: "done", error: "failed", denied: "denied", stopped: "stopped" };
+  const STATUS_LABEL = { pending: "", running: "running…", ok: "done", error: "failed", denied: "denied", stopped: "stopped" };
+  const TOOL_BADGE = { write_file: "writes files", run_python: "runs code" };
   function renderToolCall(rec, live) {
     const details = el("details", { class: `tool-call ${rec.status}`, "data-call": rec.id, open: rec.status === "pending" || null });
     const summary = el("summary", {},
       el("span", { class: "tool-name", text: rec.name }),
+      TOOL_BADGE[rec.name] ? el("span", { class: "tool-badge", text: TOOL_BADGE[rec.name], title: "This tool can change files on disk" }) : null,
       el("span", { class: "tool-arg", text: toolHeadline(rec), title: toolHeadline(rec) }),
-      el("span", { class: `tool-status ${rec.status}`, text: STATUS_LABEL[rec.status] || rec.status }));
+      el("span", { class: `tool-status ${rec.status}`, text: STATUS_LABEL[rec.status] ?? rec.status }));
     details.append(summary);
+    // One sentence about the call: the model's intent, or the factual description when it gave none.
+    const intent = el("div", { class: "tool-intent" }, el("b", { text: "Intent: " }), rec.purpose || toolDescription(rec));
     if (rec.approval && rec.status === "pending" && live) {
       const answer = async (approved) => {
         for (const b of $$("button", details)) b.disabled = true;
         try { await api(`/api/generate/${live}/tools/${rec.id}`, { method: "POST", body: { approved } }); }
         catch (e) { toast(e.message, true); }
       };
-      details.append(el("div", { class: "tool-ask-row" },
-        el("span", { class: "tool-ask-text" },
-          rec.purpose ? el("span", { class: "tool-intent" }, el("b", { text: "Intent: " }), rec.purpose) : null,
-          el("span", { class: rec.purpose ? "tool-what" : "", text: toolDescription(rec) })),
-        el("button", { class: "btn primary small", text: "Allow", onclick: () => answer(true) }),
-        el("button", { class: "btn ghost small", text: "Deny", onclick: () => answer(false) })));
+      details.append(el("div", { class: "tool-ask" }, intent,
+        el("div", { class: "tool-actions" },
+          el("button", { class: "btn ghost small", text: "Deny", onclick: () => answer(false) }),
+          el("button", { class: "btn primary small", text: "Allow", onclick: () => answer(true) }))));
     } else if (rec.purpose) {
-      details.append(el("div", { class: "tool-intent" }, el("b", { text: "Intent: " }), rec.purpose));
+      details.append(intent);
     }
-    details.append(el("div", { class: "tool-section", text: "Arguments" }), renderArgs(rec.arguments));
+    const argCount = Object.keys(rec.arguments || {}).length;
+    if (argCount !== 1) details.append(el("div", { class: "tool-section", text: "Arguments" }));
+    details.append(renderArgs(rec.arguments));
     if (rec.result) {
       const r = rec.result.length > 4000 ? rec.result.slice(0, 4000) + `\n… (${rec.result.length.toLocaleString()} characters total)` : rec.result;
       details.append(el("div", { class: "tool-section", text: "Result" + (rec.seconds ? ` (${fmtSecs(rec.seconds)})` : "") }), el("pre", { text: r }));
