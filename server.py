@@ -15,6 +15,7 @@ import html
 import io
 import zipfile
 import json
+import logging
 import os
 import re
 import time
@@ -27,6 +28,8 @@ import httpx
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+
+log = logging.getLogger("uvicorn.error")   # shows up in the server console next to uvicorn's own lines
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 PORT = int(os.environ.get("LLMHARNESS_PORT", "8766"))
@@ -463,8 +466,21 @@ async def helper_model_for(client: httpx.AsyncClient, settings: dict[str, Any], 
     return chat_model, chat_caps
 
 
+def helper_extras(helper: str, chat_model: str, options: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
+    """Payload fields that keep a helper call from reloading the chat model.
+
+    Ollama reloads a model whenever num_ctx differs from the loaded runner, so when the helper
+    *is* the chat model we send the same num_ctx (and keep_alive) the chat uses.
+    """
+    extras: dict[str, Any] = {"keep_alive": settings.get("keep_alive", "5m")}
+    if helper == chat_model and options.get("num_ctx"):
+        extras["options"] = {"num_ctx": options["num_ctx"]}
+    return extras
+
+
 async def plan_search(client: httpx.AsyncClient, model: str, caps: list[str],
-                      history: list[dict[str, Any]], force: bool) -> tuple[bool, str, str]:
+                      history: list[dict[str, Any]], force: bool,
+                      extras: dict[str, Any] | None = None) -> tuple[bool, str, str]:
     """Returns (should_search, query, note). Never raises."""
     latest = history[-1]["content"] if history else ""
     if not force and explicit_search_request(latest):
@@ -481,7 +497,8 @@ async def plan_search(client: httpx.AsyncClient, model: str, caps: list[str],
             {"role": "user", "content": f"Conversation so far:\n{convo}\n\nLatest user message:\n{latest}"},
         ],
         "format": "json",
-        "options": {"temperature": 0, "num_predict": 160},
+        "options": {"temperature": 0, "num_predict": 160, **(extras or {}).get("options", {})},
+        **{k: v for k, v in (extras or {}).items() if k != "options"},
     }
     tp = think_param("off", caps)
     if tp is not None:
@@ -489,6 +506,7 @@ async def plan_search(client: httpx.AsyncClient, model: str, caps: list[str],
     try:
         raw = await ollama_chat_once(client, payload, timeout=120)
     except httpx.HTTPError as e:
+        log.warning("search planner call to %s failed: %s: %s", model, e.__class__.__name__, e)
         return force, fallback_query(latest), f"planner call failed ({e.__class__.__name__})"
     data = extract_json(raw)
     if data is None:
@@ -678,7 +696,8 @@ async def generate_stream(req: dict[str, Any], request: Request) -> AsyncIterato
         if mode in ("auto", "always"):
             yield sse({"type": "status", "phase": "planning", "detail": "Deciding whether to search"})
             helper, helper_caps = await helper_model_for(client, settings, model, caps)
-            want, query, note = await plan_search(client, helper, helper_caps, history, force=(mode == "always"))
+            want, query, note = await plan_search(client, helper, helper_caps, history, force=(mode == "always"),
+                                                  extras=helper_extras(helper, model, options, settings))
             if note:
                 yield sse({"type": "status", "phase": "planning", "detail": note})
             if cancel.is_set():
@@ -844,17 +863,44 @@ async def generate_stream(req: dict[str, Any], request: Request) -> AsyncIterato
 
         # --- auto title ----------------------------------------------------------------
         if chat is not None and not chat.get("title") and assistant["content"] and aborted not in ("error",):
-            helper, helper_caps = await helper_model_for(client, settings, model, caps)
-            title = await make_title(client, helper, helper_caps, history[-1]["content"], assistant["content"])
+            # Runs as its own task: if the browser drops the SSE connection (which cancels this
+            # generator), the title is still generated and saved; the UI picks it up on refresh.
+            task = asyncio.create_task(auto_title(chat["id"], settings, model, caps, options,
+                                                  history[-1]["content"], assistant["content"]))
+            try:
+                title = await asyncio.shield(task)
+            except asyncio.CancelledError:
+                log.info("chat %s: client went away before the title was ready; finishing it in the background",
+                         chat["id"])
+                raise
             if title:
-                chat = load_chat(chat["id"])
-                if not chat.get("title"):
-                    chat["title"] = title
-                    save_chat(chat)
-                    yield sse({"type": "title", "chat_id": chat["id"], "title": title})
+                yield sse({"type": "title", "chat_id": chat["id"], "title": title})
 
 
-async def make_title(client: httpx.AsyncClient, model: str, caps: list[str], user: str, answer: str) -> str:
+async def auto_title(chat_id: str, settings: dict[str, Any], model: str, caps: list[str],
+                     options: dict[str, Any], user: str, answer: str) -> str:
+    """Generate and persist a title for a chat that has none. Never raises; returns the saved title or ""."""
+    try:
+        async with httpx.AsyncClient() as client:
+            helper, helper_caps = await helper_model_for(client, settings, model, caps)
+            title = await make_title(client, helper, helper_caps, user, answer,
+                                     extras=helper_extras(helper, model, options, settings))
+        if not title:
+            log.warning("chat %s: no title produced", chat_id)
+            return ""
+        chat = load_chat(chat_id)
+        if chat.get("title"):            # the user typed one meanwhile
+            return ""
+        chat["title"] = title
+        save_chat(chat)
+        return title
+    except Exception:
+        log.exception("chat %s: auto-title failed", chat_id)
+        return ""
+
+
+async def make_title(client: httpx.AsyncClient, model: str, caps: list[str], user: str, answer: str,
+                     extras: dict[str, Any] | None = None) -> str:
     payload: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -862,14 +908,16 @@ async def make_title(client: httpx.AsyncClient, model: str, caps: list[str], use
                                           "Reply with the title only: no quotes, no trailing period."},
             {"role": "user", "content": f"User: {user[:800]}\n\nAssistant: {answer[:800]}"},
         ],
-        "options": {"temperature": 0.2, "num_predict": 24},
+        "options": {"temperature": 0.2, "num_predict": 24, **(extras or {}).get("options", {})},
+        **{k: v for k, v in (extras or {}).items() if k != "options"},
     }
     tp = think_param("off", caps)
     if tp is not None:
         payload["think"] = tp
     try:
         raw = await ollama_chat_once(client, payload, timeout=60)
-    except httpx.HTTPError:
+    except httpx.HTTPError as e:
+        log.warning("title request to %s failed: %s: %s", model, e.__class__.__name__, e)
         return ""
     raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.S)
     title = raw.strip().splitlines()[0].strip().strip('"\'“”').rstrip(".") if raw.strip() else ""

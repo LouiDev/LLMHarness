@@ -526,6 +526,25 @@
       if (narrow()) { localStorage.setItem("harness.sidebar", "hidden"); applyLayout(); }
     } catch (e) { toast(e.message, true); }
   }
+  // The server finishes the auto-title in the background even if the stream was cut off;
+  // if it did not arrive over the stream, fetch it a little later.
+  function pickUpTitleLater(chat, delays = [12000, 30000]) {
+    const [delay, ...rest] = delays;
+    if (delay == null) return;
+    setTimeout(async () => {
+      if (chat.title) return;
+      try {
+        const fresh = await api(`/api/chats/${chat.id}`);
+        if (fresh.title) {
+          chat.title = fresh.title;
+          if (state.chat?.id === chat.id) { state.chat.title = fresh.title; ui.title.value = fresh.title; }
+          refreshChatList();
+          return;
+        }
+      } catch { /* chat may have been deleted */ return; }
+      pickUpTitleLater(chat, rest);
+    }, delay);
+  }
   async function saveChatMessages() {
     if (!state.chat) return;
     try {
@@ -877,6 +896,7 @@
       }
       renderMessages();
       ui.input.focus();
+      if (chat.saved && !chat.title) pickUpTitleLater(chat);
     };
 
     try {
