@@ -114,8 +114,13 @@
     options: { ...base.options, ...((extra || {}).options || {}) },
     loop_guard: { ...base.loop_guard, ...((extra || {}).loop_guard || {}) },
     web_search: { ...base.web_search, ...((extra || {}).web_search || {}) } });
+
   function loadDefaults() {
-    try { return mergeSettings(FACTORY_SETTINGS, JSON.parse(localStorage.getItem("harness.defaults") || "{}")); } catch { return deepClone(FACTORY_SETTINGS); }
+    let saved = state.server?.chat_defaults;
+    if (!saved || !Object.keys(saved).length) {
+      try { saved = JSON.parse(localStorage.getItem("harness.defaults") || "{}"); } catch { saved = {}; }
+    }
+    try { return mergeSettings(FACTORY_SETTINGS, saved); } catch { return deepClone(FACTORY_SETTINGS); }
   }
 
   // ------------------------------------------------------------------ state
@@ -370,9 +375,17 @@
     node.addEventListener("input", onPanelChange);
     node.addEventListener("change", onPanelChange);
   }
-  $("#save-defaults").onclick = () => {
-    localStorage.setItem("harness.defaults", JSON.stringify(panelToSettings()));
-    toast("New chats will start with these settings");
+  $("#save-defaults").onclick = async () => {
+    const defaults = panelToSettings();
+    try {
+      state.server = await api("/api/settings", { method: "PUT", body: { chat_defaults: defaults } });
+      localStorage.removeItem("harness.defaults");
+      toast("New chats will start with these settings");
+    } catch (e) {
+      // Server unreachable: keep them at least for this browser.
+      localStorage.setItem("harness.defaults", JSON.stringify(defaults));
+      toast(`Saved in this browser only (server: ${e.message})`, true);
+    }
   };
   $("#reset-settings").onclick = () => {
     const d = deepClone(FACTORY_SETTINGS);

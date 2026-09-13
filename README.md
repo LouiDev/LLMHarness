@@ -32,6 +32,8 @@ http://127.0.0.1:8766 and opens the browser. Ollama must be running (default
   as well as the answer. A thinking budget (tokens) and a per-reply time limit are available too.
 - **Generation controls**: temperature, top p, top k, min p, repeat penalty and window,
   max tokens, context length, seed. Blank fields fall back to the model's defaults.
+  "Use as defaults" stores the whole panel (model, prompt, thinking, search, loop guard)
+  server-side in `settings.json`, so new chats start with it in any browser.
 - **Saved chats** as JSON files in `chats/`. Chats are saved automatically after the first
   reply and get an auto-generated title. Rename, pin, delete, filter, and export as
   Markdown or JSON. Edit a message and resend, regenerate, or delete messages.
@@ -62,7 +64,7 @@ static/index.html  Single-page UI
 static/style.css
 static/app.js
 chats/             Saved conversations (one JSON file each)
-settings.json      Server-wide settings: search provider, presets, keep-alive
+settings.json      Server-wide settings: search provider, presets, keep-alive, new-chat defaults
 ```
 
 ## API sketch
@@ -71,7 +73,7 @@ settings.json      Server-wide settings: search provider, presets, keep-alive
 | --- | --- | --- |
 | GET | `/api/models` | Installed models with capabilities |
 | GET/POST/PUT/DELETE | `/api/chats[/{id}]` | Chat storage |
-| GET/PUT | `/api/settings` | Server settings and prompt presets |
+| GET/PUT | `/api/settings` | Server settings, prompt presets, new-chat defaults |
 | POST | `/api/generate` | Server-sent-event stream of a reply |
 | POST | `/api/generate/{gen_id}/stop` | Cancel a running reply |
 | POST | `/api/search` | Run a web search directly |

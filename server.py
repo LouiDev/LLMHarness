@@ -51,6 +51,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "search_region": "wt-wt",
     "keep_alive": "5m",
     "helper_model": "",               # optional small model for search planning and titles ("" = the chat model)
+    "chat_defaults": {},              # settings new chats start with ("Use as defaults" in the controls panel)
     "system_prompt_presets": [
         {"name": "Helpful assistant",
          "prompt": "You are a helpful, knowledgeable assistant. Answer directly and accurately. "
