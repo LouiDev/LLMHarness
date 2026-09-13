@@ -184,25 +184,52 @@ class LoopGuard:
 # ----------------------------------------------------------------------------- <think> tag splitter
 
 class ThinkSplitter:
-    """Splits a token stream that embeds <think>...</think> into (kind, text) parts."""
+    """Splits a token stream that embeds <think>...</think> into (kind, text) parts.
+
+    Only a <think> tag at the very start of the response opens a thinking block. Once
+    real content has been emitted, a later "<think>" is just prose (e.g. a model describing
+    thinking tags) and is passed through untouched. With ``enabled=False`` everything is
+    content; use that for models whose thinking Ollama already delivers separately.
+    """
 
     OPEN, CLOSE = "<think>", "</think>"
 
-    def __init__(self) -> None:
+    def __init__(self, enabled: bool = True) -> None:
         self.buf = ""
         self.in_think = False
+        self.enabled = enabled
+        self.started = False      # True once any content has been emitted (tags no longer honoured)
 
     def feed(self, delta: str) -> list[tuple[str, str]]:
+        if not self.enabled:
+            return [("content", delta)] if delta else []
         self.buf += delta
         out: list[tuple[str, str]] = []
         while self.buf:
+            if self.started and not self.in_think:
+                out.append(("content", self.buf))
+                self.buf = ""
+                break
             tag = self.CLOSE if self.in_think else self.OPEN
-            idx = self.buf.find(tag)
+            if self.in_think:
+                idx = self.buf.find(tag)
+            else:
+                # Opening tag only counts if it is the first non-whitespace thing in the response.
+                stripped = self.buf.lstrip()
+                idx = len(self.buf) - len(stripped) if stripped.startswith(tag) else -1
+                if idx < 0:
+                    if not stripped or tag.startswith(stripped):
+                        break                   # only whitespace / a partial tag so far: wait for more
+                    # Response begins with something other than a <think> tag: plain content from here on.
+                    self.started = True
+                    continue
             if idx >= 0:
-                if idx:
-                    out.append(("thinking" if self.in_think else "content", self.buf[:idx]))
+                if idx and self.in_think:      # whitespace before an opening tag is dropped
+                    out.append(("thinking", self.buf[:idx]))
                 self.buf = self.buf[idx + len(tag):]
                 self.in_think = not self.in_think
+                if not self.in_think:
+                    self.started = True
                 continue
             # Keep a possible partial tag at the end of the buffer.
             keep = 0
@@ -690,7 +717,8 @@ async def generate_stream(req: dict[str, Any], request: Request) -> AsyncIterato
         think_guard = LoopGuard(loop_cfg.get("threshold", 3)) if guard_on else None
         think_budget = int(req.get("think_budget") or 0)
         think_tokens = 0
-        splitter = ThinkSplitter()
+        # Models with native thinking stream it in msg["thinking"]; a "<think>" in their content is prose.
+        splitter = ThinkSplitter(enabled="thinking" not in caps)
         yield sse({"type": "status", "phase": "generating", "detail": "Waiting for the model"})
 
         def take(kind: str, text: str) -> tuple[str | None, list[str]]:
