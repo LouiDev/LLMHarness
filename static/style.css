@@ -498,7 +498,6 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 .tool-call > .tool-intent { margin: 6px 0 2px; }
 
 /* ---- tool approval policies (server settings) ---- */
-.dialog-sub { font-size: 14px; font-weight: 600; margin: 14px 0 6px; }
 .policy-list { display: grid; gap: 6px; }
 .policy-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
 .policy-row .policy-name { font-family: var(--mono); font-size: 13px; }
@@ -509,3 +508,25 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 .confirm-body { max-width: 440px; }
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .tool-ask.auto-note { color: var(--danger); }
+
+/* ---- settings window ---- */
+dialog.settings-window { width: min(820px, calc(100vw - 32px)); max-height: min(640px, calc(100vh - 48px)); }
+.settings-form { display: flex; flex-direction: column; height: min(560px, calc(100vh - 48px)); }   /* fixed: tabs must not resize the window */
+.settings-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 22px 14px; border-bottom: 1px solid var(--line); }
+.settings-head h2 { margin: 0 0 3px; font-size: 18px; font-weight: 600; }
+.settings-head .help { margin: 0; }
+.settings-body { display: flex; min-height: 0; flex: 1 1 auto; }
+.settings-tabs { flex: none; width: 180px; padding: 12px 10px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; background: var(--raised); }
+.settings-tab { text-align: left; border: 0; background: transparent; color: var(--muted); padding: 8px 10px; border-radius: 6px; font-size: 13.5px; font-weight: 500; }
+.settings-tab:hover { color: var(--text); background: var(--line); }
+.settings-tab.active { color: var(--text); background: var(--surface); box-shadow: inset 2px 0 0 var(--accent); }
+.settings-panels { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding: 18px 22px; }
+.settings-panel { display: none; gap: 12px; }
+.settings-panel.active { display: grid; }
+.settings-panel h3 { margin: 0 0 2px; font-size: 15px; font-weight: 600; }
+.settings-panel .help { margin: -4px 0 0; }
+.settings-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 22px; border-top: 1px solid var(--line); }
+@media (max-width: 640px) {
+  .settings-body { flex-direction: column; }
+  .settings-tabs { width: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
+}

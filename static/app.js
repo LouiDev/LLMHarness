@@ -315,10 +315,23 @@
     buildPolicyRows(state.server.tool_policies || {});
     $("#s-test-result").textContent = "";
     $("#s-searxng-wrap").hidden = $("#s-provider").value !== "searxng";
+    if (!$(".settings-tab.active", dialog)) showSettingsTab(localStorage.getItem("harness.settingsTab") || "models");
     dialog.showModal();
   };
   $("#s-provider").onchange = (e) => { $("#s-searxng-wrap").hidden = e.target.value !== "searxng"; };
   $("#s-cancel").onclick = () => dialog.close();
+  $("#s-close").onclick = () => dialog.close();
+  function showSettingsTab(name) {
+    for (const t of $$(".settings-tab", dialog)) t.classList.toggle("active", t.dataset.tab === name);
+    for (const p of $$(".settings-panel", dialog)) p.classList.toggle("active", p.dataset.tab === name);
+    try { localStorage.setItem("harness.settingsTab", name); } catch { /* ignore */ }
+  }
+  for (const t of $$(".settings-tab", dialog)) t.onclick = () => showSettingsTab(t.dataset.tab);
+  // Open on the tab the caller wants (or the last one used).
+  function openSettings(tab) {
+    $("#open-settings").click();
+    showSettingsTab(tab || localStorage.getItem("harness.settingsTab") || "models");
+  }
   $("#s-save").onclick = async (e) => {
     e.preventDefault();
     try {
@@ -454,7 +467,7 @@
       el("span", { text: t.name }),
       el("span", { class: "tool-ask" + (!t.approval && t.default_approval ? " auto-note" : ""), text: t.approval ? "asks first" : "runs on its own" }))));
     ui.agentTools.append(el("button", { type: "button", class: "tool-expand", text: "Change approval rules in server settings…",
-      onclick: () => { closeAgentPopover(); $("#open-settings").click(); } }));
+      onclick: () => { closeAgentPopover(); openSettings("tools"); } }));
     for (const box of $$("input", ui.agentTools)) box.addEventListener("change", onPanelChange);
   }
   function panelToSettings() {
