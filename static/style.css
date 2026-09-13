@@ -443,7 +443,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 .tools.needs-answer { border-color: var(--accent); }
 .tools.needs-answer > summary { color: var(--accent); }
 .tools-body { display: grid; gap: 6px; margin-top: 8px; }
-.tool-call { border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; background: var(--raised); }
+.tool-call { border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px 8px; background: var(--raised); }
 .tool-call > summary { cursor: pointer; list-style: none; display: flex; gap: 10px; align-items: baseline; min-width: 0; }
 .tool-call > summary::-webkit-details-marker { display: none; }
 .tool-call .tool-name { font-family: var(--mono); font-weight: 500; flex: none; }
@@ -453,16 +453,17 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 .tool-call .tool-status.error, .tool-call .tool-status.denied, .tool-call .tool-status.stopped { color: var(--danger); }
 .tool-call .tool-status.pending, .tool-call .tool-status.running { color: var(--accent); }
 .tool-call.pending { border-color: var(--accent); }
-.tool-ask { margin: 8px 0 6px; display: grid; gap: 8px; }
-.tool-actions { display: flex; gap: 8px; justify-content: flex-end; }
-.tool-badge { flex: none; font-size: 11px; font-family: var(--mono); color: var(--danger); border: 1px solid currentColor; border-radius: 4px; padding: 0 5px; line-height: 1.5; opacity: 0.85; }
+.tool-ask { margin: 6px 0 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.tool-ask .tool-intent { flex: 1 1 260px; min-width: 0; }
+.tool-actions { display: flex; gap: 6px; margin-left: auto; flex: none; }
+.tool-badge { flex: none; font-size: 10.5px; font-family: var(--mono); color: var(--danger); border: 1px solid currentColor; border-radius: 3px; padding: 0 4px; line-height: 1.5; opacity: 0.8; }
 .tool-call pre.clamped { max-height: 160px; }
 .tool-expand { border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 2px 0; cursor: pointer; justify-self: start; }
 .tool-expand:hover { color: var(--text); }
 .tool-section { margin: 8px 0 3px; color: var(--muted); font-size: 12px; }
 .tool-call pre { margin: 0; padding: 8px 10px; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; font-family: var(--mono); font-size: 12px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; }
-.tool-args { display: grid; gap: 4px; }
-.tool-arg-row { display: grid; grid-template-columns: minmax(70px, max-content) 1fr; gap: 10px; align-items: baseline; font-size: 12.5px; }
+.tool-args { display: grid; gap: 5px; margin-top: 4px; }
+.tool-arg-row { display: grid; grid-template-columns: max-content 1fr; gap: 8px; align-items: baseline; font-size: 12.5px; }
 .tool-arg-row.block { grid-template-columns: 1fr; gap: 3px; }
 .tool-arg-key { font-family: var(--mono); color: var(--muted); font-size: 12px; }
 .tool-arg-val { font-family: var(--mono); word-break: break-all; }
@@ -494,4 +495,4 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 .tool-intent { font-size: 13px; color: var(--text); }
 .tool-intent b { font-weight: 600; color: var(--accent); }
 .tool-what { font-size: 12px; color: var(--muted); }
-.tool-call > .tool-intent { margin: 8px 0 2px; }
+.tool-call > .tool-intent { margin: 6px 0 2px; }

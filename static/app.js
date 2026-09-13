@@ -809,8 +809,6 @@
     } else if (rec.purpose) {
       details.append(intent);
     }
-    const argCount = Object.keys(rec.arguments || {}).length;
-    if (argCount !== 1) details.append(el("div", { class: "tool-section", text: "Arguments" }));
     details.append(renderArgs(rec.arguments));
     if (rec.result) {
       const r = rec.result.length > 4000 ? rec.result.slice(0, 4000) + `\n… (${rec.result.length.toLocaleString()} characters total)` : rec.result;
