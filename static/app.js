@@ -364,12 +364,13 @@
         el("option", { value: "ask", text: "Asks first" }),
         el("option", { value: "auto", text: "Runs on its own" }));
       sel.value = policies[t.name] || (t.default_approval ? "ask" : "auto");
+      if (t.fixed) { sel.disabled = true; sel.title = "This tool always waits for you by nature."; }
       const risky = () => sel.value === "auto" && (t.critical || t.default_approval);   // web tools default to auto; no alarm for those
       sel.classList.toggle("auto", risky());
       sel.onchange = async () => {
         if (sel.value === "auto" && t.critical) {
           const ok = await askConfirm(`Let ${t.name} run without asking?`,
-            `The model could then ${t.name === "run_python" ? "execute arbitrary Python code" : "create or overwrite files"} on this computer with no chance for you to check the call first. A misfiring or heavily quantized model can do real damage this way. You can change this back at any time.`,
+            `The model could then ${CRITICAL_VERB[t.name] || "change things"} on this computer with no chance for you to check the call first. A misfiring or heavily quantized model can do real damage this way. You can change this back at any time.`,
             "Yes, run without asking");
           if (!ok) sel.value = "ask";
         }
@@ -381,7 +382,7 @@
   }
   function readPolicyRows() {
     const out = {};
-    for (const sel of $$("#s-policies select")) out[sel.dataset.tool] = sel.value;
+    for (const sel of $$("#s-policies select:not(:disabled)")) out[sel.dataset.tool] = sel.value;
     return out;
   }
 
@@ -465,7 +466,7 @@
     ui.agentTools.replaceChildren(...state.tools.map((t) => el("label", { class: "check tool-opt", title: t.description },
       el("input", { type: "checkbox", value: t.name }),
       el("span", { text: t.name }),
-      el("span", { class: "tool-ask" + (!t.approval && t.default_approval ? " auto-note" : ""), text: t.approval ? "asks first" : "runs on its own" }))));
+      el("span", { class: "tool-ask" + (!t.approval && t.default_approval ? " auto-note" : ""), text: t.fixed ? "asks you" : t.approval ? "asks first" : "runs on its own" }))));
     ui.agentTools.append(el("button", { type: "button", class: "tool-expand", text: "Change approval rules in server settings…",
       onclick: () => { closeAgentPopover(); openSettings("tools"); } }));
     for (const box of $$("input", ui.agentTools)) box.addEventListener("change", onPanelChange);
@@ -807,6 +808,15 @@
       case "edit_file": return shortPath(a.path);
       case "search_files": return `"${str(a.pattern)}"${a.path ? ` in ${shortPath(a.path)}` : ""}${a.glob ? ` (${str(a.glob)})` : ""}`;
       case "get_datetime": return "";
+      case "calculate": return str(a.expression).slice(0, 60);
+      case "read_attachment": return str(a.name) || "list attachments";
+      case "recall_chats": return `"${str(a.query)}"`;
+      case "ask_user": return "";   // the question is shown in full in the card body
+      case "remember": return str(a.note).slice(0, 60);
+      case "delete_file": return shortPath(a.path);
+      case "move_file": return `${shortPath(a.source)} → ${shortPath(a.destination)}`;
+      case "run_shell": return str(a.command).replace(/\s+/g, " ").slice(0, 60);
+      case "open_path": return str(a.target).slice(0, 60);
       case "web_search": return str(a.query);
       case "fetch_page": return str(a.url);
       case "run_python": return `${lineCount(str(a.code))} lines of Python`;
@@ -825,6 +835,15 @@
       case "edit_file": return `Replace ${lineCount(str(a.old_text))} line${lineCount(str(a.old_text)) === 1 ? "" : "s"} with ${lineCount(str(a.new_text))} in ${str(a.path) || "?"}${a.replace_all ? ", every occurrence" : ""}${where}.`;
       case "search_files": return `Search ${a.path ? str(a.path) : "the workspace"} for "${str(a.pattern)}"${a.regex ? " as a regular expression" : ""}.`;
       case "get_datetime": return "Read the current date and time.";
+      case "calculate": return `Evaluate ${str(a.expression)}.`;
+      case "read_attachment": return a.name ? `Read the attached file ${str(a.name)}.` : "List the files attached to this chat.";
+      case "recall_chats": return `Search your saved chats for "${str(a.query)}".`;
+      case "ask_user": return str(a.question);
+      case "remember": return `Add a note to the persistent notes file: “${str(a.note)}”.`;
+      case "delete_file": return `Delete ${str(a.path) || "?"}${where}. This cannot be undone.`;
+      case "move_file": return `Move ${str(a.source) || "?"} to ${str(a.destination) || "?"}${where}${a.overwrite ? ", replacing what is there" : ""}.`;
+      case "run_shell": return `Run a shell command with the workspace as working directory.`;
+      case "open_path": return `Open ${str(a.target)} on your screen with its default application.`;
       case "web_search": return `Search the web for “${str(a.query)}”.`;
       case "fetch_page": return `Download ${str(a.url)}.`;
       default: return `Run the tool ${rec.name}.`;
@@ -832,7 +851,7 @@
   }
   // Arguments as labelled fields; long or multi-line text gets a block with real line breaks.
   const DIFF_CLASS = { old_text: "diff-old", new_text: "diff-new" };
-  const ARG_ORDER = ["path", "url", "query", "pattern", "glob", "regex", "case_sensitive", "max_results", "replace_all", "old_text", "new_text", "content", "code"];
+  const ARG_ORDER = ["path", "source", "destination", "target", "name", "url", "query", "pattern", "glob", "regex", "case_sensitive", "max_results", "overwrite", "replace_all", "expression", "question", "options", "note", "old_text", "new_text", "content", "code", "command"];
   function renderArgs(args) {
     const isBlock = (k, text) => !!DIFF_CLASS[k] || /\n/.test(text) || text.length > 90;
     const entries = Object.entries(args || {}).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v, null, 2)]);
@@ -858,18 +877,36 @@
     }));
   }
   const STATUS_LABEL = { pending: "", running: "running…", ok: "done", error: "failed", denied: "denied", stopped: "stopped" };
-  const TOOL_BADGE = { write_file: "writes files", edit_file: "writes files", run_python: "runs code" };
+  const statusLabel = (rec) => rec.name === "ask_user" ? ({ ok: "answered", denied: "skipped" }[rec.status] ?? STATUS_LABEL[rec.status] ?? rec.status) : (STATUS_LABEL[rec.status] ?? rec.status);
+  const TOOL_BADGE = { write_file: "writes files", edit_file: "writes files", delete_file: "deletes files", move_file: "moves files", run_python: "runs code", run_shell: "runs commands" };
+  const CRITICAL_VERB = { run_python: "execute arbitrary Python code", run_shell: "run arbitrary shell commands", write_file: "create or overwrite files", edit_file: "modify files", delete_file: "delete files", move_file: "move or rename files" };
   function renderToolCall(rec, live) {
     const details = el("details", { class: `tool-call ${rec.status}`, "data-call": rec.id, open: rec.status === "pending" || null });
     const summary = el("summary", {},
       el("span", { class: "tool-name", text: rec.name }),
       TOOL_BADGE[rec.name] ? el("span", { class: "tool-badge", text: TOOL_BADGE[rec.name], title: "This tool can change files on disk" }) : null,
       el("span", { class: "tool-arg", text: toolHeadline(rec), title: toolHeadline(rec) }),
-      el("span", { class: `tool-status ${rec.status}`, text: STATUS_LABEL[rec.status] ?? rec.status }));
+      el("span", { class: `tool-status ${rec.status}`, text: statusLabel(rec) }));
     details.append(summary);
     // One sentence about the call: the model's intent, or the factual description when it gave none.
     const intent = el("div", { class: "tool-intent" }, el("b", { text: "Intent: " }), rec.purpose || toolDescription(rec));
-    if (rec.approval && rec.status === "pending" && live) {
+    if (rec.name === "ask_user" && rec.status === "pending" && live) {
+      const reply = async (text) => {
+        for (const b of $$("button, input", details)) b.disabled = true;
+        try { await api(`/api/generate/${live}/tools/${rec.id}`, { method: "POST", body: { approved: !!text, answer: text || "" } }); }
+        catch (e) { toast(e.message, true); }
+      };
+      const input = el("input", { type: "text", class: "ask-input", placeholder: "Type your answer", "aria-label": "Your answer" });
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (input.value.trim()) reply(input.value.trim()); } });
+      const options = Array.isArray(rec.arguments?.options) ? rec.arguments.options.slice(0, 5).map(String) : [];
+      details.append(el("div", { class: "tool-question" },
+        el("div", { class: "tool-intent" }, el("b", { text: "Question: " }), str(rec.arguments?.question)),
+        options.length ? el("div", { class: "ask-options" }, ...options.map((o) => el("button", { type: "button", class: "btn ghost small", text: o, onclick: () => reply(o) }))) : null,
+        el("div", { class: "ask-row" }, input,
+          el("button", { type: "button", class: "btn primary small", text: "Answer", onclick: () => { if (input.value.trim()) reply(input.value.trim()); } }),
+          el("button", { type: "button", class: "btn ghost small", text: "Skip", onclick: () => reply("") }))));
+      setTimeout(() => input.focus(), 50);
+    } else if (rec.approval && rec.status === "pending" && live) {
       const answer = async (approved) => {
         for (const b of $$("button", details)) b.disabled = true;
         try { await api(`/api/generate/${live}/tools/${rec.id}`, { method: "POST", body: { approved } }); }
@@ -882,7 +919,7 @@
     } else if (rec.purpose) {
       details.append(intent);
     }
-    details.append(renderArgs(rec.arguments));
+    if (rec.name !== "ask_user") details.append(renderArgs(rec.arguments));
     if (rec.result) {
       const r = rec.result.length > 4000 ? rec.result.slice(0, 4000) + `\n… (${rec.result.length.toLocaleString()} characters total)` : rec.result;
       details.append(el("div", { class: "tool-section", text: "Result" + (rec.seconds ? ` (${fmtSecs(rec.seconds)})` : "") }), el("pre", { text: r }));
@@ -892,7 +929,7 @@
   function renderTools(calls, live) {
     const pending = calls.filter((c) => c.status === "pending").length;
     const wrap = el("details", { class: "tools" + (pending ? " needs-answer" : ""), open: live || pending ? true : null },
-      el("summary", { text: pending ? `Tool call waiting for your approval` : `${calls.length} tool call${calls.length === 1 ? "" : "s"}` }),
+      el("summary", { text: pending ? (calls.some((c) => c.status === "pending" && c.name === "ask_user") ? "The model has a question for you" : "Tool call waiting for your approval") : `${calls.length} tool call${calls.length === 1 ? "" : "s"}` }),
       el("div", { class: "tools-body" }, ...calls.map((c) => renderToolCall(c, live))));
     return wrap;
   }
@@ -1220,8 +1257,9 @@
           break;
         case "tool_call": {
           assistant.tool_calls.push({ id: ev.id, step: ev.step, name: ev.name, arguments: ev.arguments, purpose: ev.purpose || "", status: ev.status, approval: !!ev.approval, result: "" });
-          setPhase(ev.approval ? `Waiting for approval: ${ev.name}` : `Running ${ev.name}`);
-          if (ev.approval) toast(`The model wants to run ${ev.name}. Allow or deny it in the chat.`);
+          setPhase(ev.name === "ask_user" ? "The model has a question for you" : ev.approval ? `Waiting for approval: ${ev.name}` : `Running ${ev.name}`);
+          if (ev.name === "ask_user") toast("The model has a question for you. Answer it in the chat.");
+          else if (ev.approval) toast(`The model wants to run ${ev.name}. Allow or deny it in the chat.`);
           renderToolsLive();
           break;
         }

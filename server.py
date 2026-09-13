@@ -671,10 +671,13 @@ def workspace_path(base: Path, rel: str, unrestricted: bool = False) -> Path:
 class ToolContext:
     """What tool handlers get: the HTTP client, server settings, and per-reply search state."""
 
-    def __init__(self, client: httpx.AsyncClient, settings: dict[str, Any], search_cfg: dict[str, Any]):
+    def __init__(self, client: httpx.AsyncClient, settings: dict[str, Any], search_cfg: dict[str, Any],
+                 attachments: list[dict[str, Any]] | None = None, chat_id: str | None = None):
         self.client = client
         self.settings = settings
         self.search_cfg = search_cfg
+        self.attachments = attachments or []      # files attached anywhere in this chat
+        self.chat_id = chat_id
         self.workspace = workspace_dir(settings)
         self.unrestricted = bool(settings.get("allow_outside_workspace"))
         self.sources: list[dict[str, Any]] = []   # numbered across every search in the reply
@@ -705,7 +708,12 @@ async def tool_fetch_page(ctx: ToolContext, args: dict[str, Any]) -> str:
     if r.status_code != 200:
         raise ValueError(f"HTTP {r.status_code}")
     ctype = r.headers.get("content-type", "")
-    text = html_to_text(r.text[:1_500_000]) if "html" in ctype else r.text
+    if "pdf" in ctype or url.lower().split("?")[0].endswith(".pdf"):
+        text = await asyncio.to_thread(_pdf_text, r.content[:40_000_000])
+    elif "html" in ctype:
+        text = html_to_text(r.text[:1_500_000])
+    else:
+        text = r.text
     return text[:TOOL_RESULT_CHARS] or "(the page has no readable text)"
 
 
@@ -892,6 +900,235 @@ async def tool_get_datetime(ctx: ToolContext, args: dict[str, Any]) -> str:
             f"UTC: {utc.strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"Unix timestamp: {int(now.timestamp())}")
 
+
+async def tool_delete_file(ctx: ToolContext, args: dict[str, Any]) -> str:
+    rel = str(args.get("path") or "")
+    if not rel:
+        raise ValueError("path is required")
+    p = workspace_path(ctx.workspace, rel, ctx.unrestricted)
+    if p == ctx.workspace.resolve():
+        raise ValueError("refusing to delete the workspace folder itself")
+    if p.is_dir():
+        if any(p.iterdir()):
+            raise ValueError(f"'{rel}' is a folder that is not empty; delete its files first")
+        p.rmdir()
+        return f"Deleted the empty folder {_rel(ctx.workspace, p)}."
+    if not p.is_file():
+        raise ValueError(f"'{rel}' does not exist")
+    size = p.stat().st_size
+    p.unlink()
+    return f"Deleted {_rel(ctx.workspace, p)} ({size:,} bytes)."
+
+
+async def tool_move_file(ctx: ToolContext, args: dict[str, Any]) -> str:
+    src_rel, dst_rel = str(args.get("source") or ""), str(args.get("destination") or "")
+    if not src_rel or not dst_rel:
+        raise ValueError("source and destination are required")
+    src = workspace_path(ctx.workspace, src_rel, ctx.unrestricted)
+    dst = workspace_path(ctx.workspace, dst_rel, ctx.unrestricted)
+    if not src.exists():
+        raise ValueError(f"'{src_rel}' does not exist")
+    if dst.is_dir():
+        dst = dst / src.name
+    if dst.exists() and not args.get("overwrite"):
+        raise ValueError(f"'{_rel(ctx.workspace, dst)}' already exists; set overwrite to true to replace it")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    src.replace(dst)
+    return f"Moved {_rel(ctx.workspace, src)} to {_rel(ctx.workspace, dst)}."
+
+
+import ast as _ast
+import math as _math
+import operator as _op
+
+_CALC_OPS = {_ast.Add: _op.add, _ast.Sub: _op.sub, _ast.Mult: _op.mul, _ast.Div: _op.truediv, _ast.FloorDiv: _op.floordiv,
+             _ast.Mod: _op.mod, _ast.Pow: _op.pow, _ast.USub: _op.neg, _ast.UAdd: _op.pos}
+_CALC_FUNCS = {n: getattr(_math, n) for n in ("sqrt", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "log", "log10",
+                                               "log2", "exp", "floor", "ceil", "degrees", "radians", "hypot", "gcd")}
+_CALC_FUNCS.update({"abs": abs, "round": round, "min": min, "max": max, "pow": pow,
+                    "factorial": lambda n: _math.factorial(int(n)) if 0 <= n <= 2000 else (_ for _ in ()).throw(ValueError("factorial argument must be 0-2000"))})
+_CALC_NAMES = {"pi": _math.pi, "e": _math.e, "tau": _math.tau, "inf": _math.inf}
+
+
+def _calc_eval(node: Any) -> float:
+    if isinstance(node, _ast.Expression):
+        return _calc_eval(node.body)
+    if isinstance(node, _ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+        return node.value
+    if isinstance(node, _ast.BinOp) and type(node.op) in _CALC_OPS:
+        left, right = _calc_eval(node.left), _calc_eval(node.right)
+        if isinstance(node.op, _ast.Pow) and abs(right) > 10_000:
+            raise ValueError("exponent too large")
+        return _CALC_OPS[type(node.op)](left, right)
+    if isinstance(node, _ast.UnaryOp) and type(node.op) in _CALC_OPS:
+        return _CALC_OPS[type(node.op)](_calc_eval(node.operand))
+    if isinstance(node, _ast.Name) and node.id in _CALC_NAMES:
+        return _CALC_NAMES[node.id]
+    if isinstance(node, _ast.Call) and isinstance(node.func, _ast.Name) and node.func.id in _CALC_FUNCS and not node.keywords:
+        return _CALC_FUNCS[node.func.id](*(_calc_eval(a) for a in node.args))
+    raise ValueError(f"unsupported expression element: {type(node).__name__}")
+
+
+async def tool_calculate(ctx: ToolContext, args: dict[str, Any]) -> str:
+    expr = str(args.get("expression") or "").strip().replace("^", "**")
+    if not expr:
+        raise ValueError("expression is required")
+    if len(expr) > 500:
+        raise ValueError("expression too long")
+    try:
+        tree = _ast.parse(expr, mode="eval")
+        value = _calc_eval(tree)
+    except (SyntaxError, ValueError, ZeroDivisionError, OverflowError, TypeError) as e:
+        raise ValueError(f"cannot evaluate: {e}")
+    if isinstance(value, float):
+        shown = f"{value:.12g}"
+        if value.is_integer() and abs(value) < 1e15:
+            shown = f"{int(value):,}"
+    else:
+        shown = f"{value:,}" if abs(value) < 10**30 else str(value)
+    return f"{expr} = {shown}"
+
+
+async def tool_read_attachment(ctx: ToolContext, args: dict[str, Any]) -> str:
+    atts = ctx.attachments
+    if not atts:
+        return "No files are attached to this chat."
+    name = str(args.get("name") or "").strip()
+    if not name:
+        return "Attached files:\n" + "\n".join(f"- {a.get('name')} ({a.get('chars', len(a.get('text') or '')):,} characters"
+                                              f"{', ' + a['type'] if a.get('type') else ''})" for a in atts)
+    match = next((a for a in atts if (a.get("name") or "").lower() == name.lower()), None) or \
+        next((a for a in atts if name.lower() in (a.get("name") or "").lower()), None)
+    if not match:
+        raise ValueError(f"no attachment named '{name}'. Available: {', '.join(a.get('name', '?') for a in atts)}")
+    text = match.get("text") or ""
+    start = max(0, int(args.get("start") or 0))
+    chunk = text[start:start + TOOL_RESULT_CHARS - 200]
+    note = ""
+    if start + len(chunk) < len(text):
+        note = f"\n\n[characters {start:,}-{start + len(chunk):,} of {len(text):,}; call again with start={start + len(chunk)} for more]"
+    elif start:
+        note = f"\n\n[characters {start:,}-{len(text):,} of {len(text):,}; end of file]"
+    return (chunk or "(empty)") + note
+
+
+async def tool_recall_chats(ctx: ToolContext, args: dict[str, Any]) -> str:
+    query = str(args.get("query") or "").strip()
+    if not query:
+        raise ValueError("query is required")
+    limit = max(1, min(int(args.get("max_results") or 8), 25))
+    q = query.lower()
+    words = [w for w in q.split() if len(w) > 1] or [q]
+
+    def run() -> str:
+        rows: list[tuple[str, str]] = []
+        for p in sorted(CHATS_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True):
+            try:
+                chat = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if chat.get("id") == ctx.chat_id:
+                continue
+            snippets = []
+            for m in chat.get("messages", []):
+                content = m.get("content") or ""
+                low = content.lower()
+                # exact phrase first; otherwise every word somewhere in the message
+                i = low.find(q)
+                if i < 0 and all(w in low for w in words):
+                    i = low.find(words[0])
+                if i >= 0:
+                    a, b = max(0, i - 120), min(len(content), i + len(query) + 160)
+                    snippets.append(f"  [{m.get('role')}] …{content[a:b].replace(chr(10), ' ')}…")
+                if len(snippets) >= 2:
+                    break
+            if snippets:
+                when = (chat.get("updated_at") or "")[:10]
+                rows.append((f"Chat \"{chat.get('title') or 'Untitled'}\" ({when}, id {chat.get('id')}):", "\n".join(snippets)))
+            if len(rows) >= limit:
+                break
+        if not rows:
+            return f"No saved chat mentions {query!r}."
+        return f"{len(rows)} chat{'s' if len(rows) != 1 else ''} mention {query!r}:\n" + "\n".join(f"{h}\n{s}" for h, s in rows)
+
+    return await asyncio.to_thread(run)
+
+
+TOOL_SHELL_TIMEOUT_S = 60
+
+
+async def tool_run_shell(ctx: ToolContext, args: dict[str, Any]) -> str:
+    command = str(args.get("command") or "")
+    if not command.strip():
+        raise ValueError("command is required")
+    timeout = max(1, min(int(args.get("timeout") or TOOL_SHELL_TIMEOUT_S), 300))
+    ctx.workspace.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        argv = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command]
+    else:
+        argv = ["/bin/sh", "-c", command]
+    proc = await asyncio.create_subprocess_exec(*argv, cwd=str(ctx.workspace), stdin=asyncio.subprocess.DEVNULL,
+                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return f"Timed out after {timeout} s and was killed."
+    parts = [f"exit code {proc.returncode}"]
+    if out:
+        parts.append("stdout:\n" + out.decode("utf-8", "replace"))
+    if err:
+        parts.append("stderr:\n" + err.decode("utf-8", "replace"))
+    return "\n".join(parts)[:TOOL_RESULT_CHARS]
+
+
+async def tool_open_path(ctx: ToolContext, args: dict[str, Any]) -> str:
+    target = str(args.get("target") or "").strip()
+    if not target:
+        raise ValueError("target is required")
+    if re.match(r"^https?://", target):
+        what = target
+    else:
+        p = workspace_path(ctx.workspace, target, ctx.unrestricted)
+        if not p.exists():
+            raise ValueError(f"'{target}' does not exist")
+        what = str(p)
+    if os.name == "nt":
+        os.startfile(what)  # type: ignore[attr-defined]
+    else:
+        opener = "open" if sys.platform == "darwin" else "xdg-open"
+        await asyncio.create_subprocess_exec(opener, what, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+    return f"Opened {what} with the default application."
+
+
+NOTES_FILE = Path(os.environ.get("LLMHARNESS_NOTES", ROOT / "memory.md"))
+NOTES_PROMPT_CHARS = 4000
+
+
+def load_notes() -> str:
+    try:
+        return NOTES_FILE.read_text(encoding="utf-8") if NOTES_FILE.exists() else ""
+    except OSError:
+        return ""
+
+
+async def tool_remember(ctx: ToolContext, args: dict[str, Any]) -> str:
+    note = " ".join(str(args.get("note") or "").split())
+    if not note:
+        raise ValueError("note is required")
+    if len(note) > 500:
+        raise ValueError("keep a note under 500 characters")
+    line = f"- [{datetime.now().strftime('%Y-%m-%d')}] {note}\n"
+    with NOTES_FILE.open("a", encoding="utf-8") as f:
+        f.write(line)
+    return f"Saved. The notes file now has {len(load_notes().splitlines())} entries; they are shown to you at the start of every agent reply."
+
+
+async def tool_ask_user(ctx: ToolContext, args: dict[str, Any]) -> str:
+    # Never executed: the generation loop answers ask_user from the chat UI directly.
+    raise ValueError("ask_user is handled by the chat")
+
 # approval=False: runs without asking (web lookups are read-only and leave nothing on disk).
 # approval=True: the UI shows Allow / Deny and the reply waits for the answer.
 # default: whether the tool is on when agent tools are first enabled.
@@ -914,6 +1151,44 @@ TOOLS: dict[str, dict[str, Any]] = {
         "description": "Return the current local date and time, the timezone, and the UTC time.",
         "parameters": {"type": "object", "properties": {}},
         "approval": False, "default": True, "handler": tool_get_datetime,
+    },
+    "calculate": {
+        "description": "Evaluate an arithmetic expression exactly (+ - * / // % ** and functions like sqrt, sin, log, "
+                       "factorial; constants pi and e). Use it instead of doing arithmetic in your head.",
+        "parameters": {"type": "object", "required": ["expression"], "properties": {
+            "expression": {"type": "string", "description": "e.g. (1200 * 1.19) / 12 or sqrt(2) * pi"}}},
+        "approval": False, "default": True, "handler": tool_calculate,
+    },
+    "ask_user": {
+        "description": "Ask the user a clarifying question and wait for the answer before continuing. Use it when the "
+                       "task is ambiguous instead of guessing. Optionally offer a few choices.",
+        "parameters": {"type": "object", "required": ["question"], "properties": {
+            "question": {"type": "string", "description": "The question, in one or two sentences"},
+            "options": {"type": "array", "items": {"type": "string"}, "description": "Up to 5 short answer choices"}}},
+        "approval": True, "fixed": True, "default": True, "handler": tool_ask_user,
+    },
+    "remember": {
+        "description": "Save a short note (a fact, preference or decision) to a persistent notes file that is shown to "
+                       "you at the start of every agent reply, across chats.",
+        "parameters": {"type": "object", "required": ["note"], "properties": {
+            "note": {"type": "string", "description": "One sentence to remember"}}},
+        "approval": True, "default": True, "handler": tool_remember,
+    },
+    "recall_chats": {
+        "description": "Search the user's saved chats for a keyword and return matching snippets with the chat title "
+                       "and date, to recall earlier conversations.",
+        "parameters": {"type": "object", "required": ["query"], "properties": {
+            "query": {"type": "string", "description": "Keyword or phrase to look for"},
+            "max_results": {"type": "integer", "description": "How many chats to return (1-25, default 8)"}}},
+        "approval": True, "default": True, "handler": tool_recall_chats,
+    },
+    "read_attachment": {
+        "description": "Read the full text of a file the user attached to this chat. Call without a name to list the "
+                       "attachments; use start to page through long files.",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "Attachment file name (omit to list them)"},
+            "start": {"type": "integer", "description": "Character offset to continue from"}}},
+        "approval": False, "default": True, "handler": tool_read_attachment,
     },
     "list_files": {
         "description": "List files and folders in the workspace directory.",
@@ -957,6 +1232,20 @@ TOOLS: dict[str, dict[str, Any]] = {
             "replace_all": {"type": "boolean", "description": "Replace every occurrence instead of requiring a unique match"}}},
         "approval": True, "default": True, "critical": True, "handler": tool_edit_file,
     },
+    "move_file": {
+        "description": "Move or rename a file or folder inside the workspace directory. Parent folders are created.",
+        "parameters": {"type": "object", "required": ["source", "destination"], "properties": {
+            "source": {"type": "string", "description": "Existing path relative to the workspace"},
+            "destination": {"type": "string", "description": "New path (or an existing folder to move into)"},
+            "overwrite": {"type": "boolean", "description": "Replace the destination if it already exists"}}},
+        "approval": True, "default": True, "critical": True, "handler": tool_move_file,
+    },
+    "delete_file": {
+        "description": "Delete a file (or an empty folder) in the workspace directory.",
+        "parameters": {"type": "object", "required": ["path"], "properties": {
+            "path": {"type": "string", "description": "Path relative to the workspace"}}},
+        "approval": True, "default": True, "critical": True, "handler": tool_delete_file,
+    },
     "run_python": {
         "description": f"Run a Python script with the workspace as working directory ({TOOL_PYTHON_TIMEOUT_S} s limit). "
                        "Returns the exit code, stdout and stderr.",
@@ -964,10 +1253,25 @@ TOOLS: dict[str, dict[str, Any]] = {
             "code": {"type": "string", "description": "Python source code to execute"}}},
         "approval": True, "default": False, "critical": True, "handler": tool_run_python,
     },
+    "run_shell": {
+        "description": f"Run a shell command ({'PowerShell' if os.name == 'nt' else 'sh'}) with the workspace as working "
+                       f"directory and return exit code, stdout and stderr. Default timeout {TOOL_SHELL_TIMEOUT_S} s.",
+        "parameters": {"type": "object", "required": ["command"], "properties": {
+            "command": {"type": "string", "description": "The command line to run"},
+            "timeout": {"type": "integer", "description": "Seconds before the command is killed (max 300)"}}},
+        "approval": True, "default": False, "critical": True, "handler": tool_run_shell,
+    },
+    "open_path": {
+        "description": "Open a workspace file or an http(s) URL on the user's screen with the default application "
+                       "(browser, editor, viewer).",
+        "parameters": {"type": "object", "required": ["target"], "properties": {
+            "target": {"type": "string", "description": "File path relative to the workspace, or a URL"}}},
+        "approval": True, "default": False, "handler": tool_open_path,
+    },
 }
 
 
-FILE_TOOLS = ("list_files", "read_file", "write_file", "edit_file", "search_files")
+FILE_TOOLS = ("list_files", "read_file", "write_file", "edit_file", "search_files", "delete_file", "move_file", "open_path")
 
 
 def tool_specs(names: list[str], unrestricted: bool = False) -> list[dict[str, Any]]:
@@ -1028,6 +1332,8 @@ def tool_needs_approval(name: str, settings: dict[str, Any]) -> bool:
     if not spec:
         return False
     policy = (settings.get("tool_policies") or {}).get(name)
+    if spec.get("fixed"):
+        return bool(spec["approval"])
     if policy in TOOL_POLICIES:
         return policy == "ask"
     return bool(spec["approval"])
@@ -1041,7 +1347,8 @@ def clean_tool_policies(raw: Any) -> dict[str, str]:
 
 def public_tools(settings: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"name": n, "description": t["description"], "approval": tool_needs_approval(n, settings),
-             "default_approval": t["approval"], "critical": bool(t.get("critical")), "default": t["default"]}
+             "default_approval": t["approval"], "critical": bool(t.get("critical")), "fixed": bool(t.get("fixed")),
+             "default": t["default"]}
             for n, t in TOOLS.items()]
 
 
@@ -1054,7 +1361,13 @@ def agent_instructions(ctx: ToolContext, names: list[str]) -> str:
         "Every tool call includes a 'purpose' argument: one short sentence for the user saying what the call does "
         "and why (for example 'Read config.json to find the port number').",
     ]
-    if any(n in names for n in FILE_TOOLS + ("run_python",)):
+    if "remember" in names:
+        notes = load_notes().strip()
+        if notes:
+            lines.append("Notes you saved earlier with the remember tool:\n" + notes[-NOTES_PROMPT_CHARS:])
+    if "ask_user" in names:
+        lines.append("If the request is ambiguous in a way that changes the outcome, use ask_user once rather than guessing.")
+    if any(n in names for n in FILE_TOOLS + ("run_python", "run_shell")):
         if ctx.unrestricted:
             lines.append(f"File tools default to the workspace folder {ctx.workspace} for relative paths, "
                          "and absolute paths anywhere on this computer are allowed.")
@@ -1114,8 +1427,8 @@ async def run_tool(ctx: ToolContext, name: str, args: Any) -> tuple[str, str]:
 _tool_approvals: dict[tuple[str, str], asyncio.Future] = {}
 
 
-async def wait_for_approval(gen_id: str, call_id: str, cancel: asyncio.Event, request: Request) -> bool | None:
-    """Block until the UI answers (True/False); None when the reply was stopped or the client left."""
+async def wait_for_approval(gen_id: str, call_id: str, cancel: asyncio.Event, request: Request) -> dict[str, Any] | None:
+    """Block until the UI answers ({"approved": bool, "answer": str}); None when the reply was stopped or the client left."""
     fut: asyncio.Future = asyncio.get_running_loop().create_future()
     _tool_approvals[(gen_id, call_id)] = fut
     try:
@@ -1123,7 +1436,7 @@ async def wait_for_approval(gen_id: str, call_id: str, cancel: asyncio.Event, re
             if cancel.is_set() or await request.is_disconnected():
                 return None
             await asyncio.wait({fut}, timeout=0.5)
-        return bool(fut.result())
+        return fut.result()
     finally:
         _tool_approvals.pop((gen_id, call_id), None)
 
@@ -1189,7 +1502,9 @@ async def generate_stream(req: dict[str, Any], request: Request) -> AsyncIterato
             yield sse({"type": "status", "phase": "tools",
                        "detail": f"{model} does not report tool support; agent tools are off for this reply"})
         max_steps = max(1, min(int(agent_cfg.get("max_steps") or TOOL_STEPS_DEFAULT), 25))
-        tool_ctx = ToolContext(client, settings, search_cfg)
+        tool_ctx = ToolContext(client, settings, search_cfg,
+                               attachments=[a for m in history for a in (m.get("attachments") or []) if a.get("text")],
+                               chat_id=chat_id)
         tool_records: list[dict[str, Any]] = []
 
         outgoing = [dict(m) for m in history]
@@ -1411,12 +1726,20 @@ async def generate_stream(req: dict[str, Any], request: Request) -> AsyncIterato
                         rec["status"], rec["result"] = "error", ("This exact call was already made in this reply; the result is above. "
                                                                  "Do not repeat it.")
                     elif needs_approval:
-                        yield sse({"type": "status", "phase": "approval", "detail": f"Waiting for approval: {name}"})
+                        yield sse({"type": "status", "phase": "approval",
+                                   "detail": "Waiting for your answer" if name == "ask_user" else f"Waiting for approval: {name}"})
                         answer = await wait_for_approval(gen_id, rec["id"], cancel, request)
                         if answer is None:
                             rec["status"], rec["result"] = "stopped", "Generation was stopped before this ran."
                             aborted = "stopped" if cancel.is_set() else "client disconnected"
-                        elif not answer:
+                        elif name == "ask_user":
+                            # The user's reply is the tool result; nothing runs.
+                            if answer.get("approved") and answer.get("answer", "").strip():
+                                rec["status"], rec["result"] = "ok", f"The user answered: {answer['answer'].strip()}"
+                            else:
+                                rec["status"], rec["result"] = "denied", "The user skipped the question. Proceed with your best judgement and say what you assumed."
+                            yield tool_event(rec, "tool_status")
+                        elif not answer.get("approved"):
                             rec["status"], rec["result"] = "denied", DECLINED_NOTE
 
                     if rec["status"] == "pending":
@@ -1691,7 +2014,7 @@ async def answer_tool_call(gen_id: str, call_id: str, body: dict[str, Any]) -> J
     fut = _tool_approvals.get((gen_id, call_id))
     if not fut or fut.done():
         raise HTTPException(404, "no tool call is waiting for an answer")
-    fut.set_result(bool(body.get("approved")))
+    fut.set_result({"approved": bool(body.get("approved")), "answer": str(body.get("answer") or "")})
     return JSONResponse({"ok": True})
 
 

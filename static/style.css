@@ -534,3 +534,10 @@ dialog.settings-window { width: min(820px, calc(100vw - 32px)); max-height: min(
 /* ---- edit_file: old / new text ---- */
 .tool-call pre.diff-old { border-left: 3px solid var(--danger); background: color-mix(in srgb, var(--danger) 9%, var(--code-bg)); }
 .tool-call pre.diff-new { border-left: 3px solid var(--teal); background: color-mix(in srgb, var(--teal) 10%, var(--code-bg)); }
+
+/* ---- ask_user question card ---- */
+.tool-question { display: grid; gap: 8px; margin: 6px 0 8px; }
+.ask-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.ask-row { display: flex; gap: 6px; align-items: center; }
+.ask-row .ask-input { flex: 1 1 auto; min-width: 0; font-size: 13.5px; padding: 6px 10px; }
+.policy-row select:disabled { opacity: 0.6; }
