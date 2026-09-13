@@ -73,6 +73,7 @@
           <div class="quick">
             <button class="chip" id="quick-think" title="Thinking mode">Thinking</button>
             <button class="chip" id="quick-search" title="Web search">Web search</button>
+            <button class="chip" id="quick-tools" title="Agent tools">Tools</button>
             <label class="chip" id="attach-label" title="Attach files">
               <input type="file" id="attach" multiple hidden>Attach
             </label>
@@ -173,6 +174,17 @@
         <p class="help">Searches run through DuckDuckGo unless a SearXNG instance is set in server settings.</p>
       </section>
 
+      <section class="group">
+        <h3>Agent tools</h3>
+        <label class="check"><input type="checkbox" id="agent-enabled"> <span>Let the model call tools</span></label>
+        <div class="tool-list" id="agent-tools"></div>
+        <label class="field inline">
+          <span>Max tool steps per reply</span>
+          <input type="number" id="agent-steps" min="1" max="25" step="1">
+        </label>
+        <p class="help" id="agent-help">Web lookups run on their own. Every other tool shows an Allow / Deny prompt in the chat before it runs. File tools stay inside the workspace folder set in server settings.</p>
+      </section>
+
     </div>
     <div class="panel-foot">
       <button class="btn ghost small" id="save-defaults" title="New chats start with these settings">Use as defaults</button>
@@ -210,6 +222,11 @@
       <select id="s-helper"></select>
     </label>
     <p class="help">A small fast model here keeps big chat models from spending a minute deciding whether to search.</p>
+    <label class="field">
+      <span>Agent workspace folder</span>
+      <input id="s-workspace" placeholder="workspace (next to server.py)">
+    </label>
+    <p class="help">The only folder the agent's file tools can list, read, write or run Python in. Leave empty for the default.</p>
     <div class="row-actions">
       <button type="button" class="btn ghost small" id="s-test-search">Test search</button>
       <span class="help" id="s-test-result"></span>

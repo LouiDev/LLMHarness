@@ -52,6 +52,14 @@ the `OLLAMA_HOST` environment variable.
   budget (the composer shows the token cost and warns when the end will be cut). Images are
   only offered for models that report vision; other models refuse them with an explanation.
   Attached text is stored with the chat, so later turns and regenerations still see it.
+- **Agent tools**: switch on "Let the model call tools" (or the Tools chip in the composer) and a
+  tool-capable model can call `web_search`, `fetch_page`, `list_files`, `read_file`, `write_file`
+  and `run_python` in a loop until it has an answer. Web lookups run on their own; every other
+  tool shows an Allow / Deny prompt in the chat first, so nothing touches the disk without a
+  click. File tools and Python are confined to a workspace folder (`workspace/` next to
+  `server.py`, changeable in server settings). Each reply shows a collapsible list of the calls
+  made with their arguments and results, and the loop stops after a configurable number of
+  steps. Models that do not report tool support answer normally with the tools skipped.
 - **LaTeX math** rendered with KaTeX: `$...$` and `\(...\)` inline, `$$...$$` and `\[...\]` as
   display formulas. Code blocks are left untouched.
 - Dark and light themes.
@@ -70,7 +78,7 @@ Use Markdown (headers, bolding, lists, and code blocks) to organize complex info
 
 ```
 start.bat          Double-click launcher (calls run.ps1)
-server.py          FastAPI backend: Ollama proxy, streaming, loop guard, search, chat storage
+server.py          FastAPI backend: Ollama proxy, streaming, loop guard, search, agent tools, chat storage
 static/index.html  Single-page UI
 static/style.css
 static/app.js

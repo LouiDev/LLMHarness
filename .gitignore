@@ -3,3 +3,4 @@ __pycache__/
 chats/
 settings.json
 server.log
+workspace/

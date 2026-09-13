@@ -143,12 +143,16 @@
     think_budget: 0,
     timeout_s: 0,
     web_search: { mode: "off", max_results: 5, fetch_pages: true },
+    agent: { enabled: false, tools: null, max_steps: 8 },   // tools: null = the server's default set
   };
   const deepClone = (o) => JSON.parse(JSON.stringify(o));
   const mergeSettings = (base, extra) => ({ ...deepClone(base), ...deepClone(extra || {}),
     options: { ...base.options, ...((extra || {}).options || {}) },
     loop_guard: { ...base.loop_guard, ...((extra || {}).loop_guard || {}) },
-    web_search: { ...base.web_search, ...((extra || {}).web_search || {}) } });
+    web_search: { ...base.web_search, ...((extra || {}).web_search || {}) },
+    agent: { ...base.agent, ...((extra || {}).agent || {}) } });
+  const defaultTools = () => (state.tools || []).filter((t) => t.default).map((t) => t.name);
+  const agentTools = (s) => (Array.isArray(s?.agent?.tools) ? s.agent.tools : defaultTools());
 
   function loadDefaults() {
     let saved = state.server?.chat_defaults;
@@ -161,6 +165,7 @@
   // ------------------------------------------------------------------ state
   const state = {
     models: [],
+    tools: [],           // [{ name, description, approval, default }] from /api/tools
     chats: [],
     server: {},
     chat: null,          // { id, title, messages, settings, saved }
@@ -175,7 +180,8 @@
     model: $("#model"), modelCaps: $("#model-caps"), preset: $("#preset"), systemPrompt: $("#system-prompt"), think: $("#think"), thinkHelp: $("#think-help"),
     genFields: $("#gen-fields"), loopEnabled: $("#loop-enabled"), loopThreshold: $("#loop-threshold"), thinkBudget: $("#think-budget"), timeout: $("#timeout"),
     searchMode: $("#search-mode"), searchMax: $("#search-max"), searchFetch: $("#search-fetch"),
-    quickThink: $("#quick-think"), quickSearch: $("#quick-search"), attachLabel: $("#attach-label"), attach: $("#attach"), attachments: $("#attachments"), attNote: $("#att-note"), composer: $("#composer"),
+    agentEnabled: $("#agent-enabled"), agentTools: $("#agent-tools"), agentSteps: $("#agent-steps"), agentHelp: $("#agent-help"),
+    quickThink: $("#quick-think"), quickSearch: $("#quick-search"), quickTools: $("#quick-tools"), attachLabel: $("#attach-label"), attach: $("#attach"), attachments: $("#attachments"), attNote: $("#att-note"), composer: $("#composer"),
   };
 
   // ------------------------------------------------------------------ layout & theme
@@ -230,6 +236,15 @@
       renderModelInfo();
     }
   }
+  async function loadTools() {
+    try {
+      const r = await api("/api/tools");
+      state.tools = r.tools || [];
+      state.workspace = r.workspace || "";
+    } catch (e) { toast(`Tool list unavailable: ${e.message}`, true); state.tools = []; }
+    buildAgentTools();
+    if (state.chat) settingsToPanel(state.chat.settings);
+  }
   const currentModel = () => state.models.find((m) => m.name === (state.chat?.settings.model));
   function renderModelInfo() {
     const m = currentModel();
@@ -276,6 +291,7 @@
     $("#s-helper").replaceChildren(el("option", { value: "", text: "Same as the chat model" }),
       ...state.models.map((m) => el("option", { value: m.name, text: m.name })));
     $("#s-helper").value = state.models.some((m) => m.name === state.server.helper_model) ? state.server.helper_model : "";
+    $("#s-workspace").value = state.server.workspace_dir || "";
     $("#s-test-result").textContent = "";
     $("#s-searxng-wrap").hidden = $("#s-provider").value !== "searxng";
     dialog.showModal();
@@ -288,9 +304,10 @@
       state.server = await api("/api/settings", { method: "PUT", body: {
         search_provider: $("#s-provider").value, searxng_url: $("#s-searxng").value.trim(),
         search_region: $("#s-region").value.trim() || "wt-wt", keep_alive: $("#s-keepalive").value.trim() || "5m",
-        helper_model: $("#s-helper").value,
+        helper_model: $("#s-helper").value, workspace_dir: $("#s-workspace").value.trim(),
       } });
       dialog.close(); toast("Settings saved");
+      loadTools();
     } catch (err) { toast(err.message, true); }
   };
   $("#s-test-search").onclick = async () => {
@@ -372,9 +389,20 @@
     ui.searchMode.value = s.web_search?.mode || "off";
     ui.searchMax.value = s.web_search?.max_results ?? 5;
     ui.searchFetch.checked = s.web_search?.fetch_pages !== false;
+    ui.agentEnabled.checked = !!s.agent?.enabled;
+    ui.agentSteps.value = s.agent?.max_steps ?? 8;
+    const enabledTools = new Set(agentTools(s));
+    for (const box of $$("input[type=checkbox]", ui.agentTools)) box.checked = enabledTools.has(box.value);
     renderModelInfo();
     syncPresetSelection();
     renderQuickChips();
+  }
+  function buildAgentTools() {
+    ui.agentTools.replaceChildren(...state.tools.map((t) => el("label", { class: "check tool-opt", title: t.description },
+      el("input", { type: "checkbox", value: t.name }),
+      el("span", { text: t.name }),
+      el("span", { class: "tool-ask", text: t.approval ? "asks first" : "runs on its own" }))));
+    for (const box of $$("input", ui.agentTools)) box.addEventListener("change", onPanelChange);
   }
   function panelToSettings() {
     const options = {};
@@ -391,6 +419,8 @@
       think_budget: Number(ui.thinkBudget.value) || 0,
       timeout_s: Number(ui.timeout.value) || 0,
       web_search: { mode: ui.searchMode.value, max_results: Number(ui.searchMax.value) || 5, fetch_pages: ui.searchFetch.checked },
+      agent: { enabled: ui.agentEnabled.checked, tools: $$("input:checked", ui.agentTools).map((b) => b.value),
+        max_steps: Math.min(25, Math.max(1, Number(ui.agentSteps.value) || 8)) },
     };
   }
   const persistChatSettings = debounce(async () => {
@@ -406,7 +436,7 @@
     renderQuickChips();
     persistChatSettings();
   }
-  for (const node of [ui.model, ui.systemPrompt, ui.think, ui.loopEnabled, ui.loopThreshold, ui.thinkBudget, ui.timeout, ui.searchMode, ui.searchMax, ui.searchFetch]) {
+  for (const node of [ui.model, ui.systemPrompt, ui.think, ui.loopEnabled, ui.loopThreshold, ui.thinkBudget, ui.timeout, ui.searchMode, ui.searchMax, ui.searchFetch, ui.agentEnabled, ui.agentSteps]) {
     node.addEventListener("input", onPanelChange);
     node.addEventListener("change", onPanelChange);
   }
@@ -439,7 +469,17 @@
     const mode = s.web_search?.mode || "off";
     ui.quickSearch.textContent = mode === "off" ? "Web search: off" : mode === "auto" ? "Web search: auto" : "Web search: always";
     ui.quickSearch.className = "chip" + (mode !== "off" ? " on" : "");
+    const toolsOn = !!s.agent?.enabled;
+    const count = agentTools(s).length;
+    const modelHasTools = !m || (m.capabilities || []).includes("tools");
+    ui.quickTools.textContent = toolsOn ? `Tools: ${count} on` : "Tools: off";
+    ui.quickTools.className = "chip" + (toolsOn ? " on" : "") + (modelHasTools ? "" : " muted");
+    ui.quickTools.title = modelHasTools ? "Agent tools" : "This model does not report tool support";
+    ui.agentHelp.textContent = modelHasTools
+      ? "Web lookups run on their own. Every other tool shows an Allow / Deny prompt in the chat before it runs. File tools stay inside the workspace folder set in server settings."
+      : `${m.name} does not report tool support; agent tools are skipped for it.`;
   }
+  ui.quickTools.onclick = () => { ui.agentEnabled.checked = !ui.agentEnabled.checked; onPanelChange(); };
   ui.quickThink.onclick = () => {
     const order = ["default", "off", "on"];
     ui.think.value = order[(order.indexOf(ui.think.value) + 1) % order.length] || "default";
@@ -579,6 +619,11 @@
         lines.push(`## ${m.role === "user" ? "User" : "Assistant"}`, "");
         if (m.attachments?.length) lines.push(`Attached: ${m.attachments.map((a) => `${a.name} (${a.chars} chars)`).join(", ")}`, "");
         if (m.thinking) lines.push("<details><summary>Thinking</summary>", "", m.thinking, "", "</details>", "");
+        for (const c of m.tool_calls || []) {
+          lines.push(`<details><summary>Tool: ${c.name} (${c.status})</summary>`, "", "```json", JSON.stringify(c.arguments || {}, null, 2), "```", "");
+          if (c.result) lines.push("```", c.result, "```", "");
+          lines.push("</details>", "");
+        }
         lines.push(m.content, "");
         if (m.sources?.length) { lines.push("Sources:", ""); for (const s of m.sources) lines.push(`${s.n}. [${s.title}](${s.url})`); lines.push(""); }
       }
@@ -626,6 +671,7 @@
       node.append(bubble);
     } else {
       node.append(renderThinking(m, false));
+      if (m.tool_calls?.length) node.append(renderTools(m.tool_calls, null));
       const body = el("div", { class: "body", html: renderMarkdown(m.content || "", m.sources) });
       decorateCode(body);
       node.append(body);
@@ -642,6 +688,48 @@
       el("summary", { text: label }),
       el("div", { class: "think-body", text: m.thinking || "" }));
     return d;
+  }
+  // Tool activity block. `live` is the gen id while streaming (enables Allow / Deny), null for saved messages.
+  const argsSummary = (args) => {
+    if (!args || typeof args !== "object") return "";
+    const first = Object.entries(args).find(([, v]) => typeof v === "string" && v.trim());
+    if (!first) return "";
+    const v = first[1].replace(/\s+/g, " ").trim();
+    return v.length > 70 ? v.slice(0, 67) + "…" : v;
+  };
+  const STATUS_LABEL = { pending: "waiting for approval", running: "running…", ok: "done", error: "failed", denied: "denied", stopped: "stopped" };
+  function renderToolCall(rec, live) {
+    const details = el("details", { class: `tool-call ${rec.status}`, "data-call": rec.id, open: rec.status === "pending" || null });
+    const summary = el("summary", {},
+      el("span", { class: "tool-name", text: rec.name }),
+      el("span", { class: "tool-arg", text: argsSummary(rec.arguments) }),
+      el("span", { class: `tool-status ${rec.status}`, text: STATUS_LABEL[rec.status] || rec.status }));
+    details.append(summary);
+    if (rec.approval && rec.status === "pending" && live) {
+      const answer = async (approved) => {
+        for (const b of $$("button", details)) b.disabled = true;
+        try { await api(`/api/generate/${live}/tools/${rec.id}`, { method: "POST", body: { approved } }); }
+        catch (e) { toast(e.message, true); }
+      };
+      details.append(el("div", { class: "tool-ask-row" },
+        el("span", { text: rec.name === "write_file" || rec.name === "run_python" ? "This changes files or runs code in the workspace." : "The model wants to run this tool." }),
+        el("button", { class: "btn primary small", text: "Allow", onclick: () => answer(true) }),
+        el("button", { class: "btn ghost small", text: "Deny", onclick: () => answer(false) })));
+    }
+    const argText = rec.arguments && Object.keys(rec.arguments).length ? JSON.stringify(rec.arguments, null, 2) : "(no arguments)";
+    details.append(el("div", { class: "tool-section", text: "Arguments" }), el("pre", { text: argText }));
+    if (rec.result) {
+      const r = rec.result.length > 4000 ? rec.result.slice(0, 4000) + `\n… (${rec.result.length.toLocaleString()} characters total)` : rec.result;
+      details.append(el("div", { class: "tool-section", text: "Result" + (rec.seconds ? ` (${fmtSecs(rec.seconds)})` : "") }), el("pre", { text: r }));
+    }
+    return details;
+  }
+  function renderTools(calls, live) {
+    const pending = calls.filter((c) => c.status === "pending").length;
+    const wrap = el("details", { class: "tools" + (pending ? " needs-answer" : ""), open: live || pending ? true : null },
+      el("summary", { text: pending ? `Tool call waiting for your approval` : `${calls.length} tool call${calls.length === 1 ? "" : "s"}` }),
+      el("div", { class: "tools-body" }, ...calls.map((c) => renderToolCall(c, live))));
+    return wrap;
   }
   function renderSources(query, sources) {
     return el("div", { class: "sources" },
@@ -838,7 +926,7 @@
 
   async function generate() {
     const chat = state.chat;
-    const history = chat.messages.map(({ role, content, images, attachments, created_at }) => ({ role, content, images, attachments, created_at }));
+    const history = chat.messages.map(({ role, content, images, attachments, created_at, tool_calls }) => ({ role, content, images, attachments, created_at, tool_calls }));
     const assistant = { role: "assistant", content: "", thinking: "", model: chat.settings.model, created_at: new Date().toISOString() };
     chat.messages.push(assistant);
     const index = chat.messages.length - 1;
@@ -849,9 +937,20 @@
     const node = el("article", { class: `msg assistant streaming`, "data-index": index });
     node.append(el("div", { class: "msg-head" }, el("span", { class: "who", text: chat.settings.model }), el("span", { class: "when", text: fmtTime(assistant.created_at) })));
     const thinkWrap = el("div");
+    const toolsWrap = el("div");
     const body = el("div", { class: "body" });
     const extra = el("div");
-    node.append(thinkWrap, body, extra);
+    node.append(thinkWrap, toolsWrap, body, extra);
+    assistant.tool_calls = [];
+    const renderToolsLive = () => {
+      if (!assistant.tool_calls.length) return;
+      const openIds = new Set($$("details.tool-call[open]", toolsWrap).map((d) => d.dataset.call));
+      const block = renderTools(assistant.tool_calls, genId);
+      for (const d of $$("details.tool-call", block)) if (openIds.has(d.dataset.call)) d.open = true;
+      toolsWrap.replaceChildren(block);
+      scrollToBottom();
+    };
+    const toolRecord = (id) => assistant.tool_calls.find((c) => c.id === id);
     const welcome = $(".welcome", ui.messages); if (welcome) welcome.remove();
     ui.messages.append(node);
     scrollToBottom(true);
@@ -880,6 +979,7 @@
       gen_id: genId, chat_id: chat.id, model: chat.settings.model, system_prompt: chat.settings.system_prompt,
       messages: history, options: chat.settings.options, think: chat.settings.think, loop_guard: chat.settings.loop_guard,
       web_search: chat.settings.web_search, think_budget: chat.settings.think_budget, timeout_s: chat.settings.timeout_s, save: true, chat_settings: chat.settings,
+      agent: { ...(chat.settings.agent || {}), tools: agentTools(chat.settings) },
     };
 
     let finalized = false;
@@ -891,7 +991,8 @@
         assistant.thinking_seconds = ((state.thinkTimes.end || performance.now()) - state.thinkTimes.start) / 1000;
       }
       state.thinkTimes = null;
-      if (!assistant.content && !assistant.thinking && !assistant.error) {
+      if (!assistant.tool_calls?.length) delete assistant.tool_calls;
+      if (!assistant.content && !assistant.thinking && !assistant.error && !assistant.tool_calls) {
         chat.messages.splice(index, 1);
       }
       renderMessages();
@@ -952,6 +1053,26 @@
           setPhase("Writing");
           queueRender();
           break;
+        case "tool_call": {
+          assistant.tool_calls.push({ id: ev.id, step: ev.step, name: ev.name, arguments: ev.arguments, status: ev.status, approval: !!ev.approval, result: "" });
+          setPhase(ev.approval ? `Waiting for approval: ${ev.name}` : `Running ${ev.name}`);
+          if (ev.approval) toast(`The model wants to run ${ev.name}. Allow or deny it in the chat.`);
+          renderToolsLive();
+          break;
+        }
+        case "tool_status": {
+          const rec = toolRecord(ev.id); if (rec) rec.status = ev.status;
+          setPhase(`Running ${ev.name}`);
+          renderToolsLive();
+          break;
+        }
+        case "tool_result": {
+          const rec = toolRecord(ev.id);
+          if (rec) { rec.status = ev.status; rec.result = ev.result || ""; rec.seconds = ev.seconds; }
+          setPhase("Continuing after tools");
+          renderToolsLive();
+          break;
+        }
         case "done":
           assistant.stats = ev.stats || {};
           if (ev.aborted) assistant.aborted = ev.aborted;
@@ -978,7 +1099,7 @@
 
   // ------------------------------------------------------------------ boot
   (async () => {
-    await Promise.all([checkHealth(), loadServerSettings()]);
+    await Promise.all([checkHealth(), loadServerSettings(), loadTools()]);
     await loadModels();
     await refreshChatList();
     const last = new URLSearchParams(location.search).get("chat") || localStorage.getItem("harness.lastChat");
