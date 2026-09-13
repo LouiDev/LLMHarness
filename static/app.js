@@ -662,7 +662,7 @@
         if (m.attachments?.length) lines.push(`Attached: ${m.attachments.map((a) => `${a.name} (${a.chars} chars)`).join(", ")}`, "");
         if (m.thinking) lines.push("<details><summary>Thinking</summary>", "", m.thinking, "", "</details>", "");
         for (const c of m.tool_calls || []) {
-          lines.push(`<details><summary>Tool: ${c.name} (${c.status})</summary>`, "", "```json", JSON.stringify(c.arguments || {}, null, 2), "```", "");
+          lines.push(`<details><summary>Tool: ${c.name} (${c.status})</summary>`, "", ...(c.purpose ? [`Intent: ${c.purpose}`, ""] : []), "```json", JSON.stringify(c.arguments || {}, null, 2), "```", "");
           if (c.result) lines.push("```", c.result, "```", "");
           lines.push("</details>", "");
         }
@@ -789,9 +789,13 @@
         catch (e) { toast(e.message, true); }
       };
       details.append(el("div", { class: "tool-ask-row" },
-        el("span", { text: toolDescription(rec) }),
+        el("span", { class: "tool-ask-text" },
+          rec.purpose ? el("span", { class: "tool-intent" }, el("b", { text: "Intent: " }), rec.purpose) : null,
+          el("span", { class: rec.purpose ? "tool-what" : "", text: toolDescription(rec) })),
         el("button", { class: "btn primary small", text: "Allow", onclick: () => answer(true) }),
         el("button", { class: "btn ghost small", text: "Deny", onclick: () => answer(false) })));
+    } else if (rec.purpose) {
+      details.append(el("div", { class: "tool-intent" }, el("b", { text: "Intent: " }), rec.purpose));
     }
     details.append(el("div", { class: "tool-section", text: "Arguments" }), renderArgs(rec.arguments));
     if (rec.result) {
@@ -1130,7 +1134,7 @@
           queueRender();
           break;
         case "tool_call": {
-          assistant.tool_calls.push({ id: ev.id, step: ev.step, name: ev.name, arguments: ev.arguments, status: ev.status, approval: !!ev.approval, result: "" });
+          assistant.tool_calls.push({ id: ev.id, step: ev.step, name: ev.name, arguments: ev.arguments, purpose: ev.purpose || "", status: ev.status, approval: !!ev.approval, result: "" });
           setPhase(ev.approval ? `Waiting for approval: ${ev.name}` : `Running ${ev.name}`);
           if (ev.approval) toast(`The model wants to run ${ev.name}. Allow or deny it in the chat.`);
           renderToolsLive();

@@ -849,9 +849,45 @@ def tool_specs(names: list[str], unrestricted: bool = False) -> list[dict[str, A
         desc = TOOLS[n]["description"]
         if unrestricted and n in FILE_TOOLS:
             desc += " Absolute paths anywhere on this computer are allowed as well."
-        specs.append({"type": "function", "function": {"name": n, "description": desc,
-                                                       "parameters": TOOLS[n]["parameters"]}})
+        params = json.loads(json.dumps(TOOLS[n]["parameters"]))
+        params.setdefault("properties", {})[PURPOSE_FIELD] = {
+            "type": "string",
+            "description": "One short sentence for the user: what this call does and why (e.g. "
+                           "'List the src folder to find the entry point')."}
+        params["required"] = list(params.get("required", [])) + [PURPOSE_FIELD]
+        specs.append({"type": "function", "function": {"name": n, "description": desc, "parameters": params}})
     return specs
+
+
+PURPOSE_FIELD = "purpose"
+
+
+async def summarize_tool_call(client: httpx.AsyncClient, model: str, caps: list[str], name: str,
+                              args: dict[str, Any], user_msg: str, extras: dict[str, Any] | None = None) -> str:
+    """Fallback intent line when the model left `purpose` out. Never raises; returns "" on failure."""
+    shown = {k: (v[:400] + "..." if isinstance(v, str) and len(v) > 400 else v) for k, v in args.items()}
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "An assistant is about to call a tool while helping a user. Describe in ONE short "
+                                          "sentence (max 20 words) what the call does and why, for the user to approve. "
+                                          "Reply with the sentence only."},
+            {"role": "user", "content": f"User's request: {user_msg[:600]}\n\nTool: {name}\nArguments: "
+                                        f"{json.dumps(shown, ensure_ascii=False)}"},
+        ],
+        "options": {"temperature": 0, "num_predict": 48, **(extras or {}).get("options", {})},
+        **{k: v for k, v in (extras or {}).items() if k != "options"},
+    }
+    tp = think_param("off", caps)
+    if tp is not None:
+        payload["think"] = tp
+    try:
+        raw = await ollama_chat_once(client, payload, timeout=30)
+    except httpx.HTTPError as e:
+        log.info("tool summary failed: %s", e)
+        return ""
+    raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.S).strip()
+    return raw.splitlines()[0].strip().strip('"')[:200] if raw else ""
 
 
 def public_tools() -> list[dict[str, Any]]:
@@ -865,6 +901,8 @@ def agent_instructions(ctx: ToolContext, names: list[str]) -> str:
         "Tool results are visible only to you: restate what matters for the user in your answer.",
         "Some tool calls need the user's approval. If a call is declined, do not repeat it; continue without it "
         "or explain what you would need.",
+        "Every tool call includes a 'purpose' argument: one short sentence for the user saying what the call does "
+        "and why (for example 'Read config.json to find the port number').",
     ]
     if any(n in names for n in ("list_files", "read_file", "write_file", "run_python")):
         if ctx.unrestricted:
@@ -1102,7 +1140,7 @@ async def generate_stream(req: dict[str, Any], request: Request) -> AsyncIterato
 
         def tool_event(rec: dict[str, Any], kind: str, **extra: Any) -> str:
             base = {"type": kind, "id": rec["id"], "name": rec["name"], "arguments": rec["arguments"],
-                    "step": rec["step"], "status": rec["status"]}
+                    "purpose": rec.get("purpose", ""), "step": rec["step"], "status": rec["status"]}
             return sse({**base, **extra})
 
         totals = {"tokens": 0, "eval_seconds": 0.0, "load_seconds": 0.0, "total_seconds": 0.0}
@@ -1199,12 +1237,22 @@ async def generate_stream(req: dict[str, Any], request: Request) -> AsyncIterato
                     args = fn.get("arguments")
                     if args is None:
                         args = {}
-                    rec: dict[str, Any] = {"id": f"c{len(tool_records) + 1}", "step": step, "name": name,
-                                           "arguments": args, "status": "pending", "result": ""}
-                    tool_records.append(rec)
-                    assistant["tool_calls"] = tool_records
+                    purpose = ""
+                    if isinstance(args, dict):
+                        args = dict(args)
+                        purpose = str(args.pop(PURPOSE_FIELD, "") or "").strip()
                     spec = TOOLS.get(name)
                     needs_approval = bool(spec and spec["approval"])
+                    if not purpose and needs_approval:
+                        # The model skipped the intent line; let the helper model write one before we ask the user.
+                        yield sse({"type": "status", "phase": "approval", "detail": f"Summarising the {name} call"})
+                        helper, helper_caps = await helper_model_for(client, settings, model, caps)
+                        purpose = await summarize_tool_call(client, helper, helper_caps, name, args, history[-1]["content"],
+                                                            extras=helper_extras(helper, model, options, settings))
+                    rec: dict[str, Any] = {"id": f"c{len(tool_records) + 1}", "step": step, "name": name,
+                                           "arguments": args, "purpose": purpose, "status": "pending", "result": ""}
+                    tool_records.append(rec)
+                    assistant["tool_calls"] = tool_records
                     yield tool_event(rec, "tool_call", approval=needs_approval)
 
                     key = _call_key(name, args)
