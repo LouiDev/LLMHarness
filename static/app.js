@@ -63,6 +63,41 @@
         },
       });
     }
+    if (typeof katex !== "undefined") {
+      // LaTeX math: $$...$$ and \[...\] (display), \(...\) and $...$ (inline).
+      // Captured as a marked token so Markdown does not touch the TeX source (backslashes, _, *).
+      // Text inside code spans / fences is never matched because marked lexes those first.
+      const MATH_PATTERNS = [
+        { re: /^\$\$([\s\S]+?)\$\$/, display: true },
+        { re: /^\\\[([\s\S]+?)\\\]/, display: true },
+        { re: /^\\\(([\s\S]+?)\\\)/, display: false },
+        // Single $: no space after the opening / before the closing $, and not followed by a digit ("$5 and $10").
+        { re: /^\$(?!\s)((?:\\.|[^\\$\n])+?)(?<!\s)\$(?!\d)/, display: false },
+      ];
+      marked.use({
+        extensions: [{
+          name: "math",
+          level: "inline",
+          start(src) {
+            const m = src.match(/\$|\\[\[(]/);
+            return m ? m.index : undefined;
+          },
+          tokenizer(src) {
+            for (const { re, display } of MATH_PATTERNS) {
+              const m = re.exec(src);
+              if (m) return { type: "math", raw: m[0], tex: m[1].trim(), display };
+            }
+          },
+          renderer(token) {
+            try {
+              return katex.renderToString(token.tex, { displayMode: token.display, throwOnError: false, strict: "ignore" });
+            } catch {
+              return `<code>${escapeHtml(token.raw)}</code>`;
+            }
+          },
+        }],
+      });
+    }
   }
   function renderMarkdown(text, sources) {
     if (!canMarkdown) return `<p style="white-space:pre-wrap">${escapeHtml(text)}</p>`;
@@ -101,7 +136,7 @@
 
   const FACTORY_SETTINGS = {
     model: "",
-    system_prompt: "You are a helpful, knowledgeable assistant. Answer directly and accurately. Use Markdown formatting when it aids readability.",
+    system_prompt: "You are a helpful, knowledgeable assistant. Answer directly and accurately. Use Markdown formatting when it aids readability and LaTeX ($...$ inline, $$...$$ display) for mathematical notation.",
     think: "default",
     options: { temperature: 0.7, top_p: 0.9, top_k: 40, min_p: 0, repeat_penalty: 1.1, repeat_last_n: 256, num_predict: "", num_ctx: 8192, seed: "" },
     loop_guard: { enabled: true, threshold: 3 },

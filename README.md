@@ -52,6 +52,8 @@ the `OLLAMA_HOST` environment variable.
   budget (the composer shows the token cost and warns when the end will be cut). Images are
   only offered for models that report vision; other models refuse them with an explanation.
   Attached text is stored with the chat, so later turns and regenerations still see it.
+- **LaTeX math** rendered with KaTeX: `$...$` and `\(...\)` inline, `$$...$$` and `\[...\]` as
+  display formulas. Code blocks are left untouched.
 - Dark and light themes.
 
 Model capabilities come from Ollama's `/api/show`, because the model list endpoint
