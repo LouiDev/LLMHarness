@@ -180,8 +180,9 @@
     model: $("#model"), modelCaps: $("#model-caps"), preset: $("#preset"), systemPrompt: $("#system-prompt"), think: $("#think"), thinkHelp: $("#think-help"),
     genFields: $("#gen-fields"), loopEnabled: $("#loop-enabled"), loopThreshold: $("#loop-threshold"), thinkBudget: $("#think-budget"), timeout: $("#timeout"),
     searchMode: $("#search-mode"), searchMax: $("#search-max"), searchFetch: $("#search-fetch"),
-    agentEnabled: $("#agent-enabled"), agentTools: $("#agent-tools"), agentSteps: $("#agent-steps"), agentHelp: $("#agent-help"),
-    quickThink: $("#quick-think"), quickSearch: $("#quick-search"), quickTools: $("#quick-tools"), attachLabel: $("#attach-label"), attach: $("#attach"), attachments: $("#attachments"), attNote: $("#att-note"), composer: $("#composer"),
+    agentTools: $("#agent-tools"), agentSteps: $("#agent-steps"), agentHelp: $("#agent-help"),
+    modeSwitch: $("#mode-switch"), modeNote: $("#mode-note"), agentOptionsBtn: $("#agent-options-btn"), agentPopover: $("#agent-popover"),
+    quickThink: $("#quick-think"), quickSearch: $("#quick-search"), attachLabel: $("#attach-label"), attach: $("#attach"), attachments: $("#attachments"), attNote: $("#att-note"), composer: $("#composer"),
   };
 
   // ------------------------------------------------------------------ layout & theme
@@ -391,7 +392,7 @@
     ui.searchMode.value = s.web_search?.mode || "off";
     ui.searchMax.value = s.web_search?.max_results ?? 5;
     ui.searchFetch.checked = s.web_search?.fetch_pages !== false;
-    ui.agentEnabled.checked = !!s.agent?.enabled;
+    ui.modeSwitch.dataset.mode = s.agent?.enabled ? "agent" : "chat";
     ui.agentSteps.value = s.agent?.max_steps ?? 8;
     const enabledTools = new Set(agentTools(s));
     for (const box of $$("input[type=checkbox]", ui.agentTools)) box.checked = enabledTools.has(box.value);
@@ -421,7 +422,7 @@
       think_budget: Number(ui.thinkBudget.value) || 0,
       timeout_s: Number(ui.timeout.value) || 0,
       web_search: { mode: ui.searchMode.value, max_results: Number(ui.searchMax.value) || 5, fetch_pages: ui.searchFetch.checked },
-      agent: { enabled: ui.agentEnabled.checked, tools: $$("input:checked", ui.agentTools).map((b) => b.value),
+      agent: { enabled: ui.modeSwitch.dataset.mode === "agent", tools: $$("input:checked", ui.agentTools).map((b) => b.value),
         max_steps: Math.min(25, Math.max(1, Number(ui.agentSteps.value) || 8)) },
     };
   }
@@ -438,7 +439,7 @@
     renderQuickChips();
     persistChatSettings();
   }
-  for (const node of [ui.model, ui.systemPrompt, ui.think, ui.loopEnabled, ui.loopThreshold, ui.thinkBudget, ui.timeout, ui.searchMode, ui.searchMax, ui.searchFetch, ui.agentEnabled, ui.agentSteps]) {
+  for (const node of [ui.model, ui.systemPrompt, ui.think, ui.loopEnabled, ui.loopThreshold, ui.thinkBudget, ui.timeout, ui.searchMode, ui.searchMax, ui.searchFetch, ui.agentSteps]) {
     node.addEventListener("input", onPanelChange);
     node.addEventListener("change", onPanelChange);
   }
@@ -471,17 +472,56 @@
     const mode = s.web_search?.mode || "off";
     ui.quickSearch.textContent = mode === "off" ? "Web search: off" : mode === "auto" ? "Web search: auto" : "Web search: always";
     ui.quickSearch.className = "chip" + (mode !== "off" ? " on" : "");
-    const toolsOn = !!s.agent?.enabled;
-    const count = agentTools(s).length;
+    renderModeBar();
+  }
+
+  // ------------------------------------------------------------------ chat / agent mode
+  function renderModeBar() {
+    const s = state.chat?.settings;
+    if (!s) return;
+    const m = currentModel();
+    const agent = !!s.agent?.enabled;
     const modelHasTools = !m || (m.capabilities || []).includes("tools");
-    ui.quickTools.textContent = toolsOn ? `Tools: ${count} on` : "Tools: off";
-    ui.quickTools.className = "chip" + (toolsOn ? " on" : "") + (modelHasTools ? "" : " muted");
-    ui.quickTools.title = modelHasTools ? "Agent tools" : "This model does not report tool support";
+    ui.modeSwitch.dataset.mode = agent ? "agent" : "chat";
+    for (const b of $$(".mode-btn", ui.modeSwitch)) {
+      const on = b.dataset.mode === (agent ? "agent" : "chat");
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    }
+    ui.modeSwitch.classList.toggle("unsupported", agent && !modelHasTools);
+    ui.agentOptionsBtn.hidden = !agent;
+    const tools = agentTools(s);
+    const asking = tools.filter((n) => state.tools.find((t) => t.name === n)?.approval).length;
+    ui.modeNote.textContent = !agent ? ""
+      : !modelHasTools ? `${m.name} does not report tool support; replies stay in chat mode`
+      : !tools.length ? "No tools selected"
+      : `${tools.length} tool${tools.length === 1 ? "" : "s"}${asking ? `, ${asking} ask${asking === 1 ? "s" : ""} before running` : ""}`;
     ui.agentHelp.textContent = modelHasTools
       ? "Web lookups run on their own. Every other tool shows an Allow / Deny prompt in the chat before it runs. File tools stay inside the workspace folder set in server settings."
-      : `${m.name} does not report tool support; agent tools are skipped for it.`;
+      : `${m.name} does not report tool support; agent mode has no effect until you pick a model that does.`;
+    if (!agent) closeAgentPopover();
   }
-  ui.quickTools.onclick = () => { ui.agentEnabled.checked = !ui.agentEnabled.checked; onPanelChange(); };
+  function setMode(mode) {
+    ui.modeSwitch.dataset.mode = mode;
+    onPanelChange();
+  }
+  for (const b of $$(".mode-btn", ui.modeSwitch)) {
+    b.onclick = () => {
+      if (b.dataset.mode === "agent" && ui.modeSwitch.dataset.mode === "agent") { toggleAgentPopover(); return; }
+      setMode(b.dataset.mode);
+    };
+  }
+  function openAgentPopover() { ui.agentPopover.hidden = false; ui.agentOptionsBtn.setAttribute("aria-expanded", "true"); }
+  function closeAgentPopover() { ui.agentPopover.hidden = true; ui.agentOptionsBtn.setAttribute("aria-expanded", "false"); }
+  function toggleAgentPopover() { if (ui.agentPopover.hidden) openAgentPopover(); else closeAgentPopover(); }
+  ui.agentOptionsBtn.onclick = toggleAgentPopover;
+  $("#agent-popover-close").onclick = closeAgentPopover;
+  document.addEventListener("pointerdown", (e) => {
+    if (ui.agentPopover.hidden) return;
+    if (ui.agentPopover.contains(e.target) || ui.agentOptionsBtn.contains(e.target) || ui.modeSwitch.contains(e.target)) return;
+    closeAgentPopover();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !ui.agentPopover.hidden) closeAgentPopover(); });
   ui.quickThink.onclick = () => {
     const order = ["default", "off", "on"];
     ui.think.value = order[(order.indexOf(ui.think.value) + 1) % order.length] || "default";

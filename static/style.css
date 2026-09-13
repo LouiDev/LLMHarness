@@ -462,3 +462,24 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 .tool-arg-val { font-family: var(--mono); word-break: break-all; }
 .tool-args-empty { color: var(--muted); font-size: 12.5px; }
 .tool-call .tool-arg-row pre { max-height: 240px; }
+
+/* ---- chat / agent mode ---- */
+.composer-wrap { position: relative; }
+.mode-bar { max-width: 780px; margin: 0 auto 8px; display: flex; align-items: center; gap: 10px; padding: 0 2px; min-height: 28px; }
+.mode-switch { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 999px; padding: 2px; background: var(--surface); }
+.mode-btn { border: 0; background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 500; padding: 4px 12px; border-radius: 999px; line-height: 1.3; }
+.mode-btn:hover { color: var(--text); }
+.mode-btn.active { background: var(--accent); color: var(--accent-ink); }
+.mode-switch.unsupported .mode-btn.active { background: var(--raised); color: var(--muted); border: 1px dashed var(--line-strong); padding: 3px 11px; }
+.mode-options { font-size: 12.5px; padding: 3px 9px; }
+.mode-note { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.agent-popover {
+  position: absolute; left: max(24px, calc(50% - 390px)); bottom: calc(100% - 8px); width: min(420px, calc(100vw - 48px)); z-index: 6;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; padding: 12px 14px 14px; box-shadow: var(--shadow);
+  display: grid; gap: 10px;
+}
+.agent-popover[hidden] { display: none; }
+.popover-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; font-size: 14px; }
+.agent-popover .tool-list { margin: 0; }
+.agent-popover .help { margin: 0; }
+@media (max-width: 900px) { .mode-note { display: none; } }

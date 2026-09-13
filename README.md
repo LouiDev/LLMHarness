@@ -52,8 +52,9 @@ the `OLLAMA_HOST` environment variable.
   budget (the composer shows the token cost and warns when the end will be cut). Images are
   only offered for models that report vision; other models refuse them with an explanation.
   Attached text is stored with the chat, so later turns and regenerations still see it.
-- **Agent tools**: switch on "Let the model call tools" (or the Tools chip in the composer) and a
-  tool-capable model can call `web_search`, `fetch_page`, `list_files`, `read_file`, `write_file`
+- **Agent mode**: the Chat / Agent switch above the composer decides whether the model only writes
+  replies or may call tools. "Agent options" next to it picks the tools and the step limit. In agent
+  mode a tool-capable model can call `web_search`, `fetch_page`, `list_files`, `read_file`, `write_file`
   and `run_python` in a loop until it has an answer. Web lookups run on their own; every other
   tool shows an Allow / Deny prompt in the chat first, so nothing touches the disk without a
   click. File tools and Python are confined to a workspace folder (`workspace/` next to

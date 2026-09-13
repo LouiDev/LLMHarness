@@ -65,6 +65,28 @@
         <span class="readout-metrics" id="readout-metrics"></span>
         <div class="activity" aria-hidden="true"><div class="activity-bar"></div></div>
       </div>
+      <div class="mode-bar" id="mode-bar">
+        <div class="mode-switch" id="mode-switch" role="tablist" aria-label="Mode">
+          <button type="button" class="mode-btn" data-mode="chat" role="tab" title="The model only writes replies">Chat</button>
+          <button type="button" class="mode-btn" data-mode="agent" role="tab" title="The model can call tools; file changes ask for approval">Agent</button>
+        </div>
+        <button type="button" class="btn ghost small mode-options" id="agent-options-btn" aria-haspopup="dialog" aria-expanded="false">Agent options</button>
+        <span class="mode-note" id="mode-note"></span>
+      </div>
+      <div class="agent-popover" id="agent-popover" role="dialog" aria-label="Agent options" hidden>
+        <div class="popover-head">
+          <span>Agent options</span>
+          <button type="button" class="icon-btn" id="agent-popover-close" title="Close" aria-label="Close">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l10 10M12 2L2 12"/></svg>
+          </button>
+        </div>
+        <div class="tool-list" id="agent-tools"></div>
+        <label class="field inline">
+          <span>Max tool steps per reply</span>
+          <input type="number" id="agent-steps" min="1" max="25" step="1">
+        </label>
+        <p class="help" id="agent-help"></p>
+      </div>
       <div class="composer" id="composer">
         <div class="attachments" id="attachments"></div>
         <div class="att-note" id="att-note" hidden></div>
@@ -73,7 +95,6 @@
           <div class="quick">
             <button class="chip" id="quick-think" title="Thinking mode">Thinking</button>
             <button class="chip" id="quick-search" title="Web search">Web search</button>
-            <button class="chip" id="quick-tools" title="Agent tools">Tools</button>
             <label class="chip" id="attach-label" title="Attach files">
               <input type="file" id="attach" multiple hidden>Attach
             </label>
@@ -172,17 +193,6 @@
         </label>
         <label class="check"><input type="checkbox" id="search-fetch"> <span>Read the pages, not just snippets</span></label>
         <p class="help">Searches run through DuckDuckGo unless a SearXNG instance is set in server settings.</p>
-      </section>
-
-      <section class="group">
-        <h3>Agent tools</h3>
-        <label class="check"><input type="checkbox" id="agent-enabled"> <span>Let the model call tools</span></label>
-        <div class="tool-list" id="agent-tools"></div>
-        <label class="field inline">
-          <span>Max tool steps per reply</span>
-          <input type="number" id="agent-steps" min="1" max="25" step="1">
-        </label>
-        <p class="help" id="agent-help">Web lookups run on their own. Every other tool shows an Allow / Deny prompt in the chat before it runs. File tools stay inside the workspace folder set in server settings.</p>
       </section>
 
     </div>
