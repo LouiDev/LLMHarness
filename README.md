@@ -5,7 +5,7 @@ turn thinking on or off, keep it from looping, and save every conversation. Opti
 web search grounds answers in fresh results.
 
 ## Showcase
-![img](https://github.com/LouiDev/LLMHarness/blob/master/assets/showcase.png)
+![img](https://raw.githubusercontent.com/LouiDev/LLMHarness/assets/assets/showcase.png)
 
 ## Run
 
