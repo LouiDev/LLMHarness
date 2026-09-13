@@ -4,6 +4,9 @@ A local chat harness for Ollama models: pick a model, shape it with a system pro
 turn thinking on or off, keep it from looping, and save every conversation. Optional
 web search grounds answers in fresh results.
 
+## Showcase
+![img](https://github.com/LouiDev/LLMHarness/blob/master/assets/showcase.png)
+
 ## Run
 
 Double-click `start.bat`, or from a PowerShell prompt:
