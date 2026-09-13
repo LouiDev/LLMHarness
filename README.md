@@ -1,0 +1,74 @@
+# LlmHarness
+
+A local chat harness for Ollama models: pick a model, shape it with a system prompt,
+turn thinking on or off, keep it from looping, and save every conversation. Optional
+web search grounds answers in fresh results.
+
+## Run
+
+Double-click `start.bat`, or from a PowerShell prompt:
+
+```powershell
+.\run.ps1
+```
+
+The script creates `.venv` on first use, installs the dependencies, starts the server on
+http://127.0.0.1:8766 and opens the browser. Ollama must be running (default
+`http://127.0.0.1:11434`; override with the `OLLAMA_HOST` environment variable).
+
+## Features
+
+- **Model selection** from whatever Ollama has pulled, with capability badges (thinking,
+  tools, vision) and the model's context length. Unload a model from memory with one click.
+- **System prompt** per chat, with saved presets (stored server-side in `settings.json`).
+- **Thinking mode**: model default, off, on, or an effort level for models that support it.
+  Models that emit `<think>` tags without native support are parsed too. Thinking streams
+  live into a collapsible block and shows how long the model thought.
+- **Loop guard**: the reply is stopped when a sentence or paragraph repeats N times or the
+  tail of the text is a short fragment repeated over and over. It watches the thinking stream
+  as well as the answer. A thinking budget (tokens) and a per-reply time limit are available too.
+- **Generation controls**: temperature, top p, top k, min p, repeat penalty and window,
+  max tokens, context length, seed. Blank fields fall back to the model's defaults.
+- **Saved chats** as JSON files in `chats/`. Chats are saved automatically after the first
+  reply and get an auto-generated title. Rename, pin, delete, filter, and export as
+  Markdown or JSON. Edit a message and resend, regenerate, or delete messages.
+- **Web search**: off, "let the model decide", or "search every message". The model
+  proposes a query, results come from DuckDuckGo (no API key) or a SearXNG instance, the
+  pages are fetched and summarised into context, and citations like [1] link to the source.
+  Messages that explicitly ask for a search ("search the web", "look it up online", "google")
+  always trigger one in auto mode. A small helper model can be assigned in server settings to
+  do the planning and titling instead of the (possibly slow) chat model.
+- **Live readout** while generating: phase (planning, searching, thinking, writing),
+  token count, tokens per second, and elapsed time. Stop at any time; partial replies are kept.
+- **File attachments**: drop, paste, or pick files in the composer. Text, code, CSV, JSON,
+  Markdown, PDF and DOCX are extracted server-side and placed in the prompt within the context
+  budget (the composer shows the token cost and warns when the end will be cut). Images are
+  only offered for models that report vision; other models refuse them with an explanation.
+  Attached text is stored with the chat, so later turns and regenerations still see it.
+- Dark and light themes.
+
+Model capabilities come from Ollama's `/api/show`, because the model list endpoint
+under-reports thinking and tool support for some imported GGUF models.
+
+## Layout
+
+```
+start.bat          Double-click launcher (calls run.ps1)
+server.py          FastAPI backend: Ollama proxy, streaming, loop guard, search, chat storage
+static/index.html  Single-page UI
+static/style.css
+static/app.js
+chats/             Saved conversations (one JSON file each)
+settings.json      Server-wide settings: search provider, presets, keep-alive
+```
+
+## API sketch
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/models` | Installed models with capabilities |
+| GET/POST/PUT/DELETE | `/api/chats[/{id}]` | Chat storage |
+| GET/PUT | `/api/settings` | Server settings and prompt presets |
+| POST | `/api/generate` | Server-sent-event stream of a reply |
+| POST | `/api/generate/{gen_id}/stop` | Cancel a running reply |
+| POST | `/api/search` | Run a web search directly |

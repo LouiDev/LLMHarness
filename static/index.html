@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LlmHarness</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" id="hljs-theme" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ============================== chat list ============================== -->
+  <aside class="sidebar" id="sidebar" aria-label="Saved chats">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Harness</span>
+      <span class="conn" id="conn" title="Checking Ollama">Ollama</span>
+    </div>
+    <button class="btn primary wide" id="new-chat">New chat</button>
+    <input class="search" id="chat-filter" type="search" placeholder="Find a chat" autocomplete="off">
+    <nav class="chat-list" id="chat-list"></nav>
+    <div class="sidebar-foot">
+      <button class="icon-btn" id="theme-toggle" title="Switch theme" aria-label="Switch theme">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3.5"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3 3l1 1M12 12l1 1M3 13l1-1M12 4l1-1"/></svg>
+      </button>
+      <button class="icon-btn" id="open-settings" title="Server settings" aria-label="Server settings">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.5" fill="var(--surface)"/><circle cx="11" cy="8" r="1.5" fill="var(--surface)"/><circle cx="7" cy="12" r="1.5" fill="var(--surface)"/></svg>
+      </button>
+      <span class="foot-text" id="foot-info"></span>
+    </div>
+  </aside>
+
+  <!-- ============================== conversation ============================== -->
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn" id="toggle-sidebar" title="Show or hide chats" aria-label="Show or hide chats">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M6 2.5v11"/></svg>
+      </button>
+      <div class="title-wrap">
+        <input id="chat-title" class="chat-title" placeholder="New chat" spellcheck="false" aria-label="Chat title">
+        <span class="model-tag" id="topbar-model"></span>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn ghost" id="export-btn" title="Download this chat">Export</button>
+        <div class="menu" id="export-menu" hidden>
+          <button data-format="md">Markdown</button>
+          <button data-format="json">JSON</button>
+        </div>
+        <button class="btn ghost" id="toggle-panel" title="Show or hide controls">Controls</button>
+      </div>
+    </header>
+
+    <section class="thread" id="thread">
+      <div class="thread-inner" id="messages"></div>
+    </section>
+
+    <footer class="composer-wrap">
+      <div class="readout" id="readout" hidden>
+        <span class="readout-phase" id="readout-phase">Waiting for the model</span>
+        <span class="readout-metrics" id="readout-metrics"></span>
+        <div class="activity" aria-hidden="true"><div class="activity-bar"></div></div>
+      </div>
+      <div class="composer" id="composer">
+        <div class="attachments" id="attachments"></div>
+        <div class="att-note" id="att-note" hidden></div>
+        <textarea id="input" rows="1" placeholder="Message the model" aria-label="Message"></textarea>
+        <div class="composer-row">
+          <div class="quick">
+            <button class="chip" id="quick-think" title="Thinking mode">Thinking</button>
+            <button class="chip" id="quick-search" title="Web search">Web search</button>
+            <label class="chip" id="attach-label" title="Attach files">
+              <input type="file" id="attach" multiple hidden>Attach
+            </label>
+          </div>
+          <div class="send-wrap">
+            <span class="hint">Enter sends, Shift+Enter breaks the line</span>
+            <button id="send" class="send">Send</button>
+          </div>
+        </div>
+      </div>
+    </footer>
+  </main>
+
+  <!-- ============================== controls ============================== -->
+  <aside class="panel" id="panel" aria-label="Model controls">
+    <div class="panel-head">
+      <span>Controls</span>
+      <button class="icon-btn" id="close-panel" title="Hide controls" aria-label="Hide controls">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l10 10M12 2L2 12"/></svg>
+      </button>
+    </div>
+    <div class="panel-body">
+
+      <section class="group">
+        <h3>Model</h3>
+        <select id="model" aria-label="Model"></select>
+        <div class="caps" id="model-caps"></div>
+        <div class="row-actions">
+          <button class="btn ghost small" id="refresh-models">Refresh list</button>
+          <button class="btn ghost small" id="unload-model">Unload from memory</button>
+        </div>
+      </section>
+
+      <section class="group">
+        <h3>System prompt</h3>
+        <select id="preset" aria-label="Preset"></select>
+        <textarea id="system-prompt" rows="6" placeholder="How should the model behave?"></textarea>
+        <div class="row-actions">
+          <button class="btn ghost small" id="save-preset">Save as preset</button>
+          <button class="btn ghost small danger-text" id="delete-preset">Delete preset</button>
+        </div>
+      </section>
+
+      <section class="group">
+        <h3>Reasoning</h3>
+        <label class="field">
+          <span>Thinking</span>
+          <select id="think">
+            <option value="default">Model default</option>
+            <option value="off">Off</option>
+            <option value="on">On</option>
+            <option value="low">On, low effort</option>
+            <option value="medium">On, medium effort</option>
+            <option value="high">On, high effort</option>
+          </select>
+        </label>
+        <p class="help" id="think-help"></p>
+      </section>
+
+      <section class="group">
+        <h3>Generation</h3>
+        <div id="gen-fields"></div>
+      </section>
+
+      <section class="group">
+        <h3>Guards</h3>
+        <label class="check"><input type="checkbox" id="loop-enabled"> <span>Stop when the model loops</span></label>
+        <label class="field inline">
+          <span>Repeats before stopping</span>
+          <input type="number" id="loop-threshold" min="2" max="20" step="1">
+        </label>
+        <label class="field inline">
+          <span>Thinking budget (tokens)</span>
+          <input type="number" id="think-budget" min="0" step="100" placeholder="none">
+        </label>
+        <label class="field inline">
+          <span>Time limit per reply (s)</span>
+          <input type="number" id="timeout" min="0" step="10" placeholder="none">
+        </label>
+        <p class="help">The loop check also watches the thinking stream. When thinking passes its budget the reply is stopped; regenerate with thinking off if that happens.</p>
+      </section>
+
+      <section class="group">
+        <h3>Web search</h3>
+        <label class="field">
+          <span>Mode</span>
+          <select id="search-mode">
+            <option value="off">Off</option>
+            <option value="auto">Let the model decide</option>
+            <option value="always">Search every message</option>
+          </select>
+        </label>
+        <label class="field inline">
+          <span>Results to use</span>
+          <input type="number" id="search-max" min="1" max="10" step="1">
+        </label>
+        <label class="check"><input type="checkbox" id="search-fetch"> <span>Read the pages, not just snippets</span></label>
+        <p class="help">Searches run through DuckDuckGo unless a SearXNG instance is set in server settings.</p>
+      </section>
+
+    </div>
+    <div class="panel-foot">
+      <button class="btn ghost small" id="save-defaults" title="New chats start with these settings">Use as defaults</button>
+      <button class="btn ghost small" id="reset-settings">Reset</button>
+    </div>
+  </aside>
+</div>
+
+<!-- ============================== server settings dialog ============================== -->
+<dialog id="settings-dialog">
+  <form method="dialog" class="dialog-body">
+    <h2>Server settings</h2>
+    <p class="help">Stored on the server in settings.json and shared by every chat.</p>
+    <label class="field">
+      <span>Search provider</span>
+      <select id="s-provider">
+        <option value="ddgs">DuckDuckGo (no key needed)</option>
+        <option value="searxng">SearXNG instance</option>
+      </select>
+    </label>
+    <label class="field" id="s-searxng-wrap">
+      <span>SearXNG URL</span>
+      <input id="s-searxng" placeholder="http://localhost:8080">
+    </label>
+    <label class="field">
+      <span>Search region</span>
+      <input id="s-region" placeholder="wt-wt">
+    </label>
+    <label class="field">
+      <span>Keep model loaded for</span>
+      <input id="s-keepalive" placeholder="5m">
+    </label>
+    <label class="field">
+      <span>Helper model for search planning and titles</span>
+      <select id="s-helper"></select>
+    </label>
+    <p class="help">A small fast model here keeps big chat models from spending a minute deciding whether to search.</p>
+    <div class="row-actions">
+      <button type="button" class="btn ghost small" id="s-test-search">Test search</button>
+      <span class="help" id="s-test-result"></span>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" id="s-cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="s-save">Save settings</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
