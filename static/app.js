@@ -161,7 +161,7 @@
     think_budget: 0,
     timeout_s: 0,
     web_search: { mode: "off", max_results: 5, fetch_pages: true },
-    agent: { enabled: false, tools: null, max_steps: 8 },   // tools: null = the server's default set
+    agent: { enabled: false, tools: null, max_steps: 8, workspace: "" },   // tools: null = the server's default set; workspace: "" = server default
   };
   const deepClone = (o) => JSON.parse(JSON.stringify(o));
   const mergeSettings = (base, extra) => ({ ...deepClone(base), ...deepClone(extra || {}),
@@ -200,6 +200,7 @@
     searchMode: $("#search-mode"), searchMax: $("#search-max"), searchFetch: $("#search-fetch"),
     agentTools: $("#agent-tools"), agentSteps: $("#agent-steps"), agentHelp: $("#agent-help"),
     modeSwitch: $("#mode-switch"), modeNote: $("#mode-note"), agentOptionsBtn: $("#agent-options-btn"), agentPopover: $("#agent-popover"),
+    wsPath: $("#agent-ws-path"), wsChange: $("#agent-ws-change"), wsReset: $("#agent-ws-reset"),
     quickThink: $("#quick-think"), quickSearch: $("#quick-search"), attachLabel: $("#attach-label"), attach: $("#attach"), attachments: $("#attachments"), attNote: $("#att-note"), composer: $("#composer"),
   };
 
@@ -510,7 +511,7 @@
       timeout_s: Number(ui.timeout.value) || 0,
       web_search: { mode: ui.searchMode.value, max_results: Number(ui.searchMax.value) || 5, fetch_pages: ui.searchFetch.checked },
       agent: { enabled: ui.modeSwitch.dataset.mode === "agent", tools: $$("input:checked", ui.agentTools).map((b) => b.value),
-        max_steps: Math.min(25, Math.max(1, Number(ui.agentSteps.value) || 8)) },
+        max_steps: Math.min(25, Math.max(1, Number(ui.agentSteps.value) || 8)), workspace: state.chat?.settings.agent?.workspace || "" },
     };
   }
   const persistChatSettings = debounce(async () => {
@@ -582,12 +583,68 @@
     ui.modeNote.textContent = !agent ? ""
       : !modelHasTools ? `${m.name} does not report tool support; replies stay in chat mode`
       : !tools.length ? "No tools selected"
-      : `${tools.length} tool${tools.length === 1 ? "" : "s"}${asking ? `, ${asking} ask${asking === 1 ? "s" : ""} before running` : ""}`;
+      : `${tools.length} tool${tools.length === 1 ? "" : "s"}${asking ? `, ${asking} ask${asking === 1 ? "s" : ""} before running` : ""}${s.agent?.workspace ? ` · in ${folderName(s.agent.workspace)}` : ""}`;
+    renderWorkspaceRow();
     // The popover explains itself through the tags and the settings link; the help line only appears for a model without tools.
     ui.agentHelp.hidden = modelHasTools;
     ui.agentHelp.textContent = modelHasTools ? "" : `${m.name} does not report tool support; agent mode has no effect until you pick a model that does.`;
     if (!agent) closeAgentPopover();
   }
+  const folderName = (p) => { const parts = String(p).replace(/[\\/]+$/, "").split(/[\\/]/); return parts[parts.length - 1] || p; };
+  function renderWorkspaceRow() {
+    const ws = state.chat?.settings.agent?.workspace || "";
+    ui.wsPath.textContent = ws || `Default (${state.workspace ? folderName(state.workspace) : "workspace"})`;
+    ui.wsPath.title = ws || state.workspace || "";
+    ui.wsPath.classList.toggle("is-default", !ws);
+    ui.wsReset.hidden = !ws;
+  }
+  function setWorkspace(path) {
+    if (!state.chat) return;
+    state.chat.settings.agent = { ...(state.chat.settings.agent || {}), workspace: path || "" };
+    onPanelChange();
+  }
+  ui.wsReset.onclick = () => setWorkspace("");
+  ui.wsChange.onclick = () => openFolderDialog(state.chat?.settings.agent?.workspace || "");
+
+  // ------------------------------------------------------------------ folder picker
+  const fd = { dialog: $("#folder-dialog"), path: $("#fd-path"), list: $("#fd-list"), shortcuts: $("#fd-shortcuts"), recent: $("#fd-recent"), recentHead: $("#fd-recent-head"), status: $("#fd-status"), up: $("#fd-up"), use: $("#fd-use") };
+  let fdCurrent = null;   // last listing from the server
+  async function fdLoad(path) {
+    fd.status.textContent = "Loading…";
+    try {
+      const r = await api(`/api/fs/dirs?path=${encodeURIComponent(path || "")}`);
+      fdCurrent = r;
+      fd.path.value = r.path;
+      requestAnimationFrame(() => { fd.path.scrollLeft = fd.path.scrollWidth; });   // long paths: show the folder name end
+      fd.up.disabled = !r.parent;
+      fd.list.replaceChildren(...(r.dirs.length ? r.dirs.map((d) => el("button", { type: "button", class: "folder-item", text: d.name, title: d.path, onclick: () => fdLoad(d.path) }))
+        : [el("div", { class: "folder-empty", text: "No subfolders" })]));
+      const link = (label, p, active) => el("button", { type: "button", class: "folder-link" + (active ? " active" : ""), text: label, title: p, onclick: () => fdLoad(p) });
+      fd.shortcuts.replaceChildren(...r.shortcuts.map((s) => link(s.label, s.path, s.path === r.path)));
+      fd.recentHead.hidden = !r.recent.length;
+      fd.recent.replaceChildren(...r.recent.map((p) => link(folderName(p), p, p === r.path)));
+      fd.status.textContent = r.is_default ? "This is the default workspace from server settings." : `${r.dirs.length} subfolder${r.dirs.length === 1 ? "" : "s"}`;
+    } catch (e) {
+      fd.status.textContent = `Cannot open that folder: ${e.message}`;
+    }
+  }
+  function openFolderDialog(start) {
+    fdLoad(start || "");
+    fd.dialog.showModal();
+    setTimeout(() => fd.path.focus(), 50);
+  }
+  fd.up.onclick = () => { if (fdCurrent?.parent) fdLoad(fdCurrent.parent); };
+  fd.path.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); fdLoad(fd.path.value.trim()); } });
+  fd.use.onclick = () => {
+    if (!fdCurrent) return;
+    // Choosing the server default folder means "use the default", so the chat follows later changes of it.
+    setWorkspace(fdCurrent.is_default ? "" : fdCurrent.path);
+    fd.dialog.close();
+    toast(fdCurrent.is_default ? "Using the default workspace" : `Workspace: ${fdCurrent.path}`);
+  };
+  $("#fd-cancel").onclick = () => fd.dialog.close();
+  $("#fd-close").onclick = () => fd.dialog.close();
+
   function setMode(mode) {
     ui.modeSwitch.dataset.mode = mode;
     onPanelChange();
@@ -606,6 +663,7 @@
   document.addEventListener("pointerdown", (e) => {
     if (ui.agentPopover.hidden) return;
     if (ui.agentPopover.contains(e.target) || ui.agentOptionsBtn.contains(e.target) || ui.modeSwitch.contains(e.target)) return;
+    if (e.target.closest && e.target.closest("dialog[open]")) return;   // the folder picker and other dialogs belong to the popover's flow
     closeAgentPopover();
   });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !ui.agentPopover.hidden) closeAgentPopover(); });

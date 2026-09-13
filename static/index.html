@@ -75,6 +75,12 @@
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l10 10M12 2L2 12"/></svg>
           </button>
         </div>
+        <div class="ws-row">
+          <span class="ws-label">Workspace</span>
+          <span class="ws-path" id="agent-ws-path"></span>
+          <button type="button" class="btn ghost small" id="agent-ws-change">Change…</button>
+          <button type="button" class="btn ghost small" id="agent-ws-reset" title="Use the default workspace from server settings" hidden>Default</button>
+        </div>
         <div class="tool-list" id="agent-tools"></div>
         <label class="field inline">
           <span>Max tool steps per reply</span>
@@ -265,10 +271,10 @@
         <section class="settings-panel" data-tab="agent" role="tabpanel">
           <h3>Agent workspace</h3>
           <label class="field">
-            <span>Workspace folder</span>
+            <span>Default workspace folder</span>
             <input id="s-workspace" placeholder="workspace (next to server.py)">
           </label>
-          <p class="help">The folder the agent's file tools list, read and write in, and where Python runs. Leave empty for the default.</p>
+          <p class="help">Used by chats that have not picked their own folder under Agent options. Leave empty for the <code>workspace</code> folder next to server.py.</p>
           <label class="check"><input type="checkbox" id="s-outside"> <span>Allow absolute paths outside the workspace</span></label>
           <div class="notice">
             <span class="notice-icon" aria-hidden="true">i</span>
@@ -295,6 +301,41 @@
     <footer class="settings-foot">
       <button type="button" class="btn ghost" id="s-cancel">Cancel</button>
       <button type="submit" class="btn primary" id="s-save">Save settings</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- ============================== folder picker ============================== -->
+<dialog id="folder-dialog" class="folder-dialog">
+  <form method="dialog" class="folder-form">
+    <header class="settings-head">
+      <div>
+        <h2>Workspace for this chat</h2>
+        <p class="help">The folder the agent's file tools and scripts work in. Click a folder to open it, or paste a path.</p>
+      </div>
+      <button type="button" class="icon-btn" id="fd-close" title="Close" aria-label="Close">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l10 10M12 2L2 12"/></svg>
+      </button>
+    </header>
+    <div class="folder-body">
+      <aside class="folder-side">
+        <div class="folder-side-head">Places</div>
+        <div id="fd-shortcuts"></div>
+        <div class="folder-side-head" id="fd-recent-head" hidden>Recent</div>
+        <div id="fd-recent"></div>
+      </aside>
+      <div class="folder-main">
+        <div class="folder-path-row">
+          <button type="button" class="btn ghost small" id="fd-up" title="Parent folder">↑ Up</button>
+          <input id="fd-path" spellcheck="false" aria-label="Folder path" placeholder="Paste a folder path and press Enter">
+        </div>
+        <div class="folder-list" id="fd-list"></div>
+      </div>
+    </div>
+    <footer class="settings-foot">
+      <span class="help folder-status" id="fd-status"></span>
+      <button type="button" class="btn ghost" id="fd-cancel">Cancel</button>
+      <button type="button" class="btn primary" id="fd-use">Use this folder</button>
     </footer>
   </form>
 </dialog>

@@ -58,6 +58,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "workspace_dir": "",              # folder the agent's file tools may touch ("" = ./workspace)
     "allow_outside_workspace": False, # let file tools use absolute paths anywhere on this computer
     "tool_policies": {},              # per tool: "ask" (Allow / Deny in the chat) or "auto"; missing = the tool's default
+    "recent_workspaces": [],          # folders picked per chat, newest first (for the folder picker)
     "chat_defaults": {},              # settings new chats start with ("Use as defaults" in the controls panel)
     "system_prompt_presets": [],      # the user's own presets; the built-in ones below are always offered as well
 }
@@ -649,6 +650,65 @@ def workspace_dir(settings: dict[str, Any]) -> Path:
     return Path(raw).expanduser() if raw else ROOT / "workspace"
 
 
+RECENT_WORKSPACES_MAX = 8
+
+
+def remember_workspace(settings: dict[str, Any], folder: Path) -> None:
+    """Keep a short most-recent-first list of per-chat workspaces for the folder picker."""
+    entry = str(folder)
+    recent = [r for r in (settings.get("recent_workspaces") or []) if r != entry]
+    recent.insert(0, entry)
+    recent = recent[:RECENT_WORKSPACES_MAX]
+    if recent != settings.get("recent_workspaces"):
+        stored = load_settings()
+        stored["recent_workspaces"] = recent
+        save_settings(stored)
+        settings["recent_workspaces"] = recent
+
+
+def list_directories(raw: str, settings: dict[str, Any]) -> dict[str, Any]:
+    """Server-side folder browser for the workspace picker (the app runs on the user's own machine)."""
+    home = Path.home()
+    default_ws = workspace_dir(settings)
+    shortcuts: list[dict[str, str]] = [{"label": "Default workspace", "path": str(default_ws)}, {"label": "Home", "path": str(home)}]
+    if os.name == "nt":
+        try:
+            drives = os.listdrives()  # type: ignore[attr-defined]
+        except (AttributeError, OSError):
+            drives = [f"{c}:\\" for c in "CDEFGH" if Path(f"{c}:\\").exists()]
+        shortcuts += [{"label": d.rstrip("\\"), "path": d} for d in drives]
+    else:
+        shortcuts.append({"label": "/", "path": "/"})
+    recent = [r for r in (settings.get("recent_workspaces") or []) if Path(r).is_dir()]
+    p = Path(raw).expanduser() if raw.strip() else default_ws
+    if p == default_ws and not p.exists():
+        try:
+            p.mkdir(parents=True, exist_ok=True)     # the default workspace is created on first use anyway
+        except OSError:
+            pass
+    if not p.exists():
+        p = default_ws if default_ws.exists() else home
+    if not p.is_dir():
+        p = p.parent
+    p = p.resolve()
+    dirs: list[dict[str, Any]] = []
+    try:
+        for child in sorted(p.iterdir(), key=lambda c: c.name.lower()):
+            try:
+                if not child.is_dir() or child.name.startswith(".") or child.name in ("$RECYCLE.BIN", "System Volume Information"):
+                    continue
+            except OSError:
+                continue
+            dirs.append({"name": child.name, "path": str(child)})
+            if len(dirs) >= 500:
+                break
+    except PermissionError:
+        pass
+    parent = str(p.parent) if p.parent != p else None
+    return {"path": str(p), "parent": parent, "dirs": dirs, "shortcuts": shortcuts, "recent": recent,
+            "is_default": p == default_ws.resolve() if default_ws.exists() else False}
+
+
 def workspace_path(base: Path, rel: str, unrestricted: bool = False) -> Path:
     """Resolve a model-supplied path. Confined to the workspace unless `unrestricted` (a server setting)."""
     base = base.resolve()
@@ -668,13 +728,14 @@ class ToolContext:
     """What tool handlers get: the HTTP client, server settings, and per-reply search state."""
 
     def __init__(self, client: httpx.AsyncClient, settings: dict[str, Any], search_cfg: dict[str, Any],
-                 attachments: list[dict[str, Any]] | None = None, chat_id: str | None = None):
+                 attachments: list[dict[str, Any]] | None = None, chat_id: str | None = None,
+                 workspace: Path | None = None):
         self.client = client
         self.settings = settings
         self.search_cfg = search_cfg
         self.attachments = attachments or []      # files attached anywhere in this chat
         self.chat_id = chat_id
-        self.workspace = workspace_dir(settings)
+        self.workspace = workspace or workspace_dir(settings)   # per-chat folder, else the server default
         self.unrestricted = bool(settings.get("allow_outside_workspace"))
         self.sources: list[dict[str, Any]] = []   # numbered across every search in the reply
         self.queries: list[str] = []
@@ -1499,9 +1560,19 @@ async def generate_stream(req: dict[str, Any], request: Request) -> AsyncIterato
             yield sse({"type": "status", "phase": "tools",
                        "detail": f"{model} does not report tool support; agent tools are off for this reply"})
         max_steps = max(1, min(int(agent_cfg.get("max_steps") or TOOL_STEPS_DEFAULT), 25))
+        chat_workspace: Path | None = None
+        ws_raw = str(agent_cfg.get("workspace") or "").strip()
+        if agent_active and ws_raw:
+            candidate = Path(ws_raw).expanduser()
+            if not candidate.is_dir():
+                yield sse({"type": "error", "message": f"The workspace folder for this chat does not exist: {ws_raw}. "
+                                                       "Pick another one under Agent options."})
+                return
+            chat_workspace = candidate.resolve()
+            remember_workspace(settings, chat_workspace)
         tool_ctx = ToolContext(client, settings, search_cfg,
                                attachments=[a for m in history for a in (m.get("attachments") or []) if a.get("text")],
-                               chat_id=chat_id)
+                               chat_id=chat_id, workspace=chat_workspace)
         tool_records: list[dict[str, Any]] = []
 
         outgoing = [dict(m) for m in history]
@@ -2013,6 +2084,15 @@ async def answer_tool_call(gen_id: str, call_id: str, body: dict[str, Any]) -> J
         raise HTTPException(404, "no tool call is waiting for an answer")
     fut.set_result({"approved": bool(body.get("approved")), "answer": str(body.get("answer") or "")})
     return JSONResponse({"ok": True})
+
+
+@app.get("/api/fs/dirs")
+async def fs_dirs(path: str = "") -> JSONResponse:
+    """Folder listing for the per-chat workspace picker."""
+    try:
+        return JSONResponse(await asyncio.to_thread(list_directories, path, load_settings()))
+    except OSError as e:
+        raise HTTPException(400, f"cannot list {path!r}: {e}")
 
 
 @app.get("/api/tools")

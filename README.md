@@ -63,8 +63,9 @@ the `OLLAMA_HOST` environment variable.
   `move_file`, `delete_file`) and system (`run_python`, `run_shell`, `open_path`). All tools are on
   by default; untick some only to give a small model fewer options. Web lookups run on their own; every other
   tool shows an Allow / Deny prompt in the chat first, so nothing touches the disk without a
-  click. File tools and Python are confined to a workspace folder (`workspace/` next to
-  `server.py`, changeable in server settings). Each reply shows a collapsible list of the calls
+  click. File tools and Python are confined to a workspace folder: each chat can pick its own under
+  Agent options (a folder picker with drives, home and recent folders), otherwise the default from
+  server settings applies (`workspace/` next to `server.py`). Each reply shows a collapsible list of the calls
   made with their arguments and results, and the loop stops after a configurable number of
   steps. Models that do not report tool support answer normally with the tools skipped. A server
   setting can lift the workspace restriction so file tools accept absolute paths anywhere on
