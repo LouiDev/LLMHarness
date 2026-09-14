@@ -38,12 +38,18 @@
   <!-- ============================== conversation ============================== -->
   <main class="main">
     <header class="topbar">
-      <button class="icon-btn" id="toggle-sidebar" title="Show or hide chats" aria-label="Show or hide chats">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M6 2.5v11"/></svg>
-      </button>
       <div class="title-wrap">
+        <button class="icon-btn" id="toggle-sidebar" title="Show or hide chats" aria-label="Show or hide chats">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M6 2.5v11"/></svg>
+        </button>
         <input id="chat-title" class="chat-title" placeholder="New chat" spellcheck="false" aria-label="Chat title">
+      </div>
+      <div class="topbar-center">
         <span class="model-tag" id="topbar-model"></span>
+        <div class="ctx-meter" id="ctx-meter" hidden>
+          <span class="ctx-bar" aria-hidden="true"><span class="ctx-fill" id="ctx-fill"></span></span>
+          <span class="ctx-text" id="ctx-text"></span>
+        </div>
       </div>
       <div class="topbar-actions">
         <button class="btn ghost" id="export-btn" title="Download this chat">Export</button>
@@ -60,12 +66,37 @@
     </section>
 
     <footer class="composer-wrap">
-      <div class="readout" id="readout" hidden>
-        <span class="readout-phase" id="readout-phase">Waiting for the model</span>
-        <span class="readout-metrics" id="readout-metrics"></span>
-        <div class="activity" aria-hidden="true"><div class="activity-bar"></div></div>
+      <div class="mode-bar" id="mode-bar">
+        <div class="mode-switch" id="mode-switch" role="tablist" aria-label="Mode">
+          <button type="button" class="mode-btn" data-mode="chat" role="tab" title="The model only writes replies">Chat</button>
+          <button type="button" class="mode-btn" data-mode="agent" role="tab" title="The model can call tools; file changes ask for approval">Agent</button>
+        </div>
+        <button type="button" class="btn ghost small mode-options" id="agent-options-btn" aria-haspopup="dialog" aria-expanded="false">Agent options</button>
+        <button type="button" class="btn ghost small mode-options ws-btn" id="ws-btn" aria-haspopup="dialog" title="Folder the agent's file tools and scripts work in" hidden>
+          <span class="ws-btn-label">Workspace</span><span class="ws-btn-name" id="ws-btn-name"></span>
+        </button>
+        <span class="mode-note" id="mode-note"></span>
+      </div>
+      <div class="agent-popover" id="agent-popover" role="dialog" aria-label="Agent options" hidden>
+        <div class="popover-head">
+          <span>Agent options</span>
+          <button type="button" class="icon-btn" id="agent-popover-close" title="Close" aria-label="Close">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l10 10M12 2L2 12"/></svg>
+          </button>
+        </div>
+        <div class="tool-list" id="agent-tools"></div>
+        <label class="field inline">
+          <span>Max tool steps per reply</span>
+          <input type="number" id="agent-steps" min="1" max="25" step="1">
+        </label>
+        <p class="help" id="agent-help"></p>
       </div>
       <div class="composer" id="composer">
+        <div class="readout" id="readout" hidden>
+          <span class="readout-phase" id="readout-phase">Waiting for the model</span>
+          <span class="readout-metrics" id="readout-metrics"></span>
+          <div class="activity" aria-hidden="true"><div class="activity-bar"></div></div>
+        </div>
         <div class="attachments" id="attachments"></div>
         <div class="att-note" id="att-note" hidden></div>
         <textarea id="input" rows="1" placeholder="Message the model" aria-label="Message"></textarea>
@@ -181,42 +212,146 @@
   </aside>
 </div>
 
-<!-- ============================== server settings dialog ============================== -->
-<dialog id="settings-dialog">
-  <form method="dialog" class="dialog-body">
-    <h2>Server settings</h2>
-    <p class="help">Stored on the server in settings.json and shared by every chat.</p>
-    <label class="field">
-      <span>Search provider</span>
-      <select id="s-provider">
-        <option value="ddgs">DuckDuckGo (no key needed)</option>
-        <option value="searxng">SearXNG instance</option>
-      </select>
-    </label>
-    <label class="field" id="s-searxng-wrap">
-      <span>SearXNG URL</span>
-      <input id="s-searxng" placeholder="http://localhost:8080">
-    </label>
-    <label class="field">
-      <span>Search region</span>
-      <input id="s-region" placeholder="wt-wt">
-    </label>
-    <label class="field">
-      <span>Keep model loaded for</span>
-      <input id="s-keepalive" placeholder="5m">
-    </label>
-    <label class="field">
-      <span>Helper model for search planning and titles</span>
-      <select id="s-helper"></select>
-    </label>
-    <p class="help">A small fast model here keeps big chat models from spending a minute deciding whether to search.</p>
-    <div class="row-actions">
-      <button type="button" class="btn ghost small" id="s-test-search">Test search</button>
-      <span class="help" id="s-test-result"></span>
+<!-- ============================== server settings window ============================== -->
+<dialog id="settings-dialog" class="settings-window">
+  <form method="dialog" class="settings-form">
+    <header class="settings-head">
+      <div>
+        <h2>Server settings</h2>
+        <p class="help">Stored on the server in settings.json and shared by every chat.</p>
+      </div>
+      <button type="button" class="icon-btn" id="s-close" title="Close" aria-label="Close">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l10 10M12 2L2 12"/></svg>
+      </button>
+    </header>
+    <div class="settings-body">
+      <nav class="settings-tabs" role="tablist" aria-label="Settings sections">
+        <button type="button" class="settings-tab" data-tab="models" role="tab">Models</button>
+        <button type="button" class="settings-tab" data-tab="search" role="tab">Web search</button>
+        <button type="button" class="settings-tab" data-tab="agent" role="tab">Agent workspace</button>
+        <button type="button" class="settings-tab" data-tab="tools" role="tab">Tool approval</button>
+      </nav>
+      <div class="settings-panels">
+
+        <section class="settings-panel" data-tab="models" role="tabpanel">
+          <h3>Models</h3>
+          <label class="field">
+            <span>Keep model loaded for</span>
+            <input id="s-keepalive" placeholder="5m">
+          </label>
+          <p class="help">How long Ollama keeps the chat model in memory after a reply, for example 5m, 1h or -1 for always.</p>
+          <label class="field">
+            <span>Helper model for search planning and titles</span>
+            <select id="s-helper"></select>
+          </label>
+          <p class="help">A small fast model here keeps big chat models from spending a minute deciding whether to search. It also writes chat titles and, when a model leaves it out, the intent line of a tool call.</p>
+        </section>
+
+        <section class="settings-panel" data-tab="search" role="tabpanel">
+          <h3>Web search</h3>
+          <label class="field">
+            <span>Search provider</span>
+            <select id="s-provider">
+              <option value="ddgs">DuckDuckGo (no key needed)</option>
+              <option value="searxng">SearXNG instance</option>
+            </select>
+          </label>
+          <label class="field" id="s-searxng-wrap">
+            <span>SearXNG URL</span>
+            <input id="s-searxng" placeholder="http://localhost:8080">
+          </label>
+          <label class="field">
+            <span>Search region</span>
+            <input id="s-region" placeholder="wt-wt">
+          </label>
+          <p class="help">Region codes follow DuckDuckGo, for example wt-wt for worldwide, de-de for Germany or us-en for the United States.</p>
+          <div class="row-actions">
+            <button type="button" class="btn ghost small" id="s-test-search">Test search</button>
+            <span class="help" id="s-test-result"></span>
+          </div>
+        </section>
+
+        <section class="settings-panel" data-tab="agent" role="tabpanel">
+          <h3>Agent workspace</h3>
+          <label class="field">
+            <span>Default workspace folder</span>
+            <input id="s-workspace" placeholder="workspace (next to server.py)">
+          </label>
+          <p class="help">Used by chats that have not picked their own folder under Agent options. Leave empty for the <code>workspace</code> folder next to server.py.</p>
+          <label class="check"><input type="checkbox" id="s-outside"> <span>Allow absolute paths outside the workspace</span></label>
+          <div class="notice">
+            <span class="notice-icon" aria-hidden="true">i</span>
+            <div>With this on, approved file tool calls can read and write anywhere your user account can. Each call still asks for approval in the chat unless its rule under Tool approval says otherwise.</div>
+          </div>
+        </section>
+
+        <section class="settings-panel" data-tab="tools" role="tabpanel">
+          <h3>Tool approval</h3>
+          <div class="notice">
+            <span class="notice-icon" aria-hidden="true">i</span>
+            <div>
+              <b>Think twice before letting tools run on their own.</b> Local models, and heavily quantized ones in
+              particular, sometimes call tools with wrong paths or made-up content. Tools are listed from harmless to
+              risky; keep anything that changes files or runs code on "asks first" unless you trust the model and have backups.
+            </div>
+          </div>
+          <p class="help">"Asks first" pauses the reply for an Allow / Deny prompt in the chat; "runs on its own" executes the call as soon as the model makes it.</p>
+          <div class="policy-list" id="s-policies"></div>
+        </section>
+
+      </div>
     </div>
-    <div class="dialog-actions">
+    <footer class="settings-foot">
       <button type="button" class="btn ghost" id="s-cancel">Cancel</button>
       <button type="submit" class="btn primary" id="s-save">Save settings</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- ============================== folder picker ============================== -->
+<dialog id="folder-dialog" class="folder-dialog">
+  <form method="dialog" class="folder-form">
+    <header class="settings-head">
+      <div>
+        <h2>Workspace for this chat</h2>
+        <p class="help">The folder the agent's file tools and scripts work in. Click a folder to open it, or paste a path.</p>
+      </div>
+      <button type="button" class="icon-btn" id="fd-close" title="Close" aria-label="Close">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l10 10M12 2L2 12"/></svg>
+      </button>
+    </header>
+    <div class="folder-body">
+      <aside class="folder-side">
+        <div class="folder-side-head">Places</div>
+        <div id="fd-shortcuts"></div>
+        <div class="folder-side-head" id="fd-recent-head" hidden>Recent</div>
+        <div id="fd-recent"></div>
+      </aside>
+      <div class="folder-main">
+        <div class="folder-path-row">
+          <button type="button" class="btn ghost small" id="fd-up" title="Parent folder">↑ Up</button>
+          <input id="fd-path" spellcheck="false" aria-label="Folder path" placeholder="Paste a folder path and press Enter">
+        </div>
+        <div class="folder-list" id="fd-list"></div>
+      </div>
+    </div>
+    <footer class="settings-foot">
+      <span class="help folder-status" id="fd-status"></span>
+      <button type="button" class="btn ghost" id="fd-default" title="Use the default workspace from server settings">Use default</button>
+      <button type="button" class="btn ghost" id="fd-cancel">Cancel</button>
+      <button type="button" class="btn primary" id="fd-use">Use this folder</button>
+    </footer>
+  </form>
+</dialog>
+
+<!-- ============================== confirmation dialog ============================== -->
+<dialog id="confirm-dialog">
+  <form method="dialog" class="dialog-body confirm-body">
+    <h2 id="confirm-title">Are you sure?</h2>
+    <p class="help" id="confirm-text"></p>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" id="confirm-cancel">Cancel</button>
+      <button type="button" class="btn primary danger" id="confirm-ok">Confirm</button>
     </div>
   </form>
 </dialog>
