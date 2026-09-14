@@ -182,10 +182,15 @@ input[type="number"] { font-family: var(--mono); font-size: 13px; }
   padding: 10px 16px; border-bottom: 1px solid var(--line);
   background: var(--bg);
 }
-.title-wrap { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 12px; }
+/* Title left, model + context meter centred, actions right: the two outer groups share the leftover
+   width equally so the centre group sits in the middle of the bar. */
+.title-wrap { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 10px; overflow: hidden; }
+.topbar-center { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 14px; }
+.topbar-center .model-tag { min-width: 48px; }
+.topbar-actions { flex: 1 1 0; justify-content: flex-end; }
 .title-wrap .chat-title {
-  background: transparent; border: 1px solid transparent; padding: 4px 6px; margin-left: -6px;
-  font-size: 16px; font-weight: 500; width: auto; min-width: 120px; max-width: 60%;
+  background: transparent; border: 1px solid transparent; padding: 4px 6px;
+  font-size: 16px; font-weight: 500; width: auto; min-width: 120px; max-width: 100%;
 }
 .title-wrap .chat-title:hover, .title-wrap .chat-title:focus { border-color: var(--line); background: var(--surface); }
 .model-tag { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -334,6 +339,17 @@ input[type="number"] { font-family: var(--mono); font-size: 13px; }
 .chip.muted { opacity: 0.55; }
 .send-wrap { display: flex; align-items: center; gap: 12px; }
 .hint { font-size: 12px; color: var(--faint); }
+/* Context meter next to the model tag in the topbar: how full the model's context window is,
+   measured after the last reply plus an estimate for the draft. */
+.ctx-meter { display: flex; align-items: center; gap: 7px; flex-shrink: 0; font-family: var(--mono); font-size: 12px; color: var(--faint); white-space: nowrap; cursor: default; }
+.ctx-meter[hidden] { display: none; }
+.ctx-bar { display: block; width: 60px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.ctx-fill { display: block; height: 100%; width: 0; border-radius: 2px; background: var(--muted); transition: width 0.2s ease; }
+.ctx-meter.warn { color: var(--accent); }
+.ctx-meter.warn .ctx-fill { background: var(--accent); }
+.ctx-meter.over { color: var(--danger); }
+.ctx-meter.over .ctx-fill { background: var(--danger); }
+.ctx-meter.estimate .ctx-text::before { content: "~"; }
 .send {
   border: 0; background: var(--accent); color: var(--accent-ink); font-weight: 600;
   border-radius: 8px; padding: 8px 18px; font-size: 14px;
@@ -471,14 +487,14 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 
 /* ---- chat / agent mode ---- */
 .composer-wrap { position: relative; }
-.mode-bar { max-width: 780px; margin: 0 auto 8px; display: flex; align-items: center; gap: 10px; padding: 0 2px; min-height: 28px; }
+.mode-bar { max-width: 780px; margin: 0 auto 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 0 2px; min-height: 28px; }
 .mode-switch { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 999px; padding: 2px; background: var(--surface); }
 .mode-btn { border: 0; background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 500; padding: 4px 12px; border-radius: 999px; line-height: 1.3; }
 .mode-btn:hover { color: var(--text); }
 .mode-btn.active { background: var(--accent); color: var(--accent-ink); }
 .mode-switch.unsupported .mode-btn.active { background: var(--raised); color: var(--muted); border: 1px dashed var(--line-strong); padding: 3px 11px; }
 .mode-options { font-size: 12.5px; padding: 3px 9px; }
-.mode-note { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.mode-note { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 140px; }
 .agent-popover {
   position: absolute; left: max(24px, calc(50% - 390px)); bottom: calc(100% - 8px); width: min(420px, calc(100vw - 48px)); z-index: 6;
   background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; padding: 12px 14px 14px; box-shadow: var(--shadow);
@@ -588,3 +604,13 @@ dialog.settings-window { width: min(820px, calc(100vw - 32px)); max-height: min(
 .folder-empty { color: var(--muted); font-size: 13px; padding: 6px 8px; }
 .folder-status { margin-right: auto; align-self: center; }
 @media (max-width: 640px) { .folder-body { flex-direction: column; } .folder-side { width: auto; border-right: 0; border-bottom: 1px solid var(--line); flex-direction: row; flex-wrap: wrap; } .folder-side-head { display: none; } }
+
+@media (max-width: 640px) {
+  /* Topbar on phones: keep the sidebar toggle and a short title; the model name (also in the
+     controls) gives way and the meter shrinks to its text. */
+  .title-wrap { flex: 1 1 auto; min-width: 112px; }
+  .title-wrap .chat-title { min-width: 72px; }
+  .topbar-center .model-tag { display: none; }
+  .ctx-bar { display: none; }
+  .topbar-actions { flex: 0 0 auto; }
+}

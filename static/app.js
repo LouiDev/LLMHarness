@@ -194,6 +194,7 @@
   const ui = {
     app: $("#app"), sidebar: $("#sidebar"), panel: $("#panel"), chatList: $("#chat-list"), messages: $("#messages"), thread: $("#thread"),
     input: $("#input"), send: $("#send"), readout: $("#readout"), readoutPhase: $("#readout-phase"), readoutMetrics: $("#readout-metrics"),
+    ctxMeter: $("#ctx-meter"), ctxFill: $("#ctx-fill"), ctxText: $("#ctx-text"),
     title: $("#chat-title"), topbarModel: $("#topbar-model"), conn: $("#conn"), footInfo: $("#foot-info"),
     model: $("#model"), modelCaps: $("#model-caps"), preset: $("#preset"), systemPrompt: $("#system-prompt"), think: $("#think"), thinkHelp: $("#think-help"),
     genFields: $("#gen-fields"), loopEnabled: $("#loop-enabled"), loopThreshold: $("#loop-threshold"), thinkBudget: $("#think-budget"), timeout: $("#timeout"),
@@ -525,6 +526,7 @@
     renderModelInfo();
     syncPresetSelection();
     renderQuickChips();
+    updateContextMeter();
     persistChatSettings();
   }
   for (const node of [ui.model, ui.systemPrompt, ui.think, ui.loopEnabled, ui.loopThreshold, ui.thinkBudget, ui.timeout, ui.searchMode, ui.searchMax, ui.searchFetch, ui.agentSteps]) {
@@ -829,6 +831,7 @@
     "Help me plan a three-day trip to Lisbon.",
   ];
   function renderMessages() {
+    updateContextMeter();
     const msgs = state.chat?.messages || [];
     if (!msgs.length) {
       ui.messages.replaceChildren(el("div", { class: "welcome" },
@@ -1031,6 +1034,46 @@
     if (st.prompt_tokens) parts.push(`${st.prompt_tokens} in`);
     return parts.join("   ");
   }
+  // ------------------------------------------------------------------ context meter
+  // Ollama reports the prompt size (prompt_eval_count) with every reply, so after a reply the number is
+  // measured; everything typed or attached since then is estimated at 3.2 chars per token.
+  const CHARS_PER_TOKEN = 3.2;
+  const estTokens = (chars) => Math.round(chars / CHARS_PER_TOKEN);
+  const fmtK = (n) => n >= 10000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  function messageChars(m) {
+    let chars = (m.content || "").length;
+    for (const a of m.attachments || []) chars += Math.min(a.chars || 0, (a.text || "").length);
+    return chars;
+  }
+  function contextUsage() {
+    const chat = state.chat; if (!chat) return null;
+    const limit = Number(chat.settings.options?.num_ctx) || 4096;
+    const msgs = chat.messages || [];
+    let base = -1;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === "assistant" && msgs[i].stats?.prompt_tokens) { base = i; break; }
+    }
+    let used = 0;
+    if (base >= 0) used = msgs[base].stats.prompt_tokens + (msgs[base].stats.tokens || 0);
+    else used = estTokens((chat.settings.system_prompt || "").length);
+    for (let i = base + 1; i < msgs.length; i++) used += estTokens(messageChars(msgs[i]));
+    used += estTokens(ui.input.value.length);
+    used += estTokens(state.pendingFiles.reduce((n, f) => n + (f.kind === "text" ? Math.min(f.chars, f.text.length) : 0), 0));
+    return { used, limit, measured: base >= 0 };
+  }
+  function updateContextMeter() {
+    const u = contextUsage();
+    if (!u || (!u.measured && u.used === 0)) { ui.ctxMeter.hidden = true; return; }
+    const pct = u.used / u.limit;
+    ui.ctxMeter.hidden = false;
+    ui.ctxMeter.className = "ctx-meter" + (pct >= 1 ? " over" : pct >= 0.8 ? " warn" : "") + (u.measured ? "" : " estimate");
+    ui.ctxFill.style.width = `${Math.min(100, pct * 100).toFixed(1)}%`;
+    ui.ctxText.textContent = `${fmtK(u.used)} / ${fmtK(u.limit)}`;
+    const how = u.measured ? "Measured after the last reply, plus an estimate for what was typed or attached since." : "Estimated from the text length; the first reply gives a measured value.";
+    const over = pct >= 1 ? " The oldest part of the conversation will be dropped by the model." : "";
+    ui.ctxMeter.title = `Context window: about ${u.used.toLocaleString()} of ${u.limit.toLocaleString()} tokens (${Math.round(pct * 100)}%). ${how}${over} Change the limit with "Context length" in the controls.`;
+  }
+
   function renderFooter(m, index) {
     const foot = el("div", { class: "msg-foot" });
     const actions = el("span", { class: "msg-actions" });
@@ -1092,7 +1135,7 @@
     ui.input.style.height = "auto";
     ui.input.style.height = Math.min(ui.input.scrollHeight, 260) + "px";
   }
-  ui.input.addEventListener("input", autoGrow);
+  ui.input.addEventListener("input", () => { autoGrow(); updateContextMeter(); });
   ui.input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
     if (e.key === "Escape" && state.streaming) stopGeneration();
@@ -1143,6 +1186,7 @@
   ui.input.addEventListener("paste", (e) => { const files = Array.from(e.clipboardData?.files || []); if (files.length) { e.preventDefault(); addFiles(files); } });
 
   function renderAttachments() {
+    updateContextMeter();
     ui.attachments.replaceChildren(...state.pendingFiles.map((f, i) => {
       const remove = el("button", { type: "button", text: "×", title: "Remove", onclick: () => { state.pendingFiles.splice(i, 1); renderAttachments(); } });
       if (f.kind === "image") return el("div", { class: "att" }, el("img", { src: `data:image/*;base64,${f.b64}`, alt: "" }), remove);
@@ -1189,6 +1233,7 @@
     const genElapsed = s.firstTokenAt ? (performance.now() - s.firstTokenAt) / 1000 : 0;
     const rate = genElapsed > 0.5 && s.tokens ? (s.tokens / genElapsed).toFixed(1) : "–";
     ui.readoutMetrics.textContent = `${s.tokens} tok   ${rate} tok/s   ${elapsed.toFixed(1)} s`;
+    updateContextMeter();
   }
   function startReadout() {
     ui.readout.hidden = false;
@@ -1360,6 +1405,7 @@
         case "done":
           assistant.stats = ev.stats || {};
           if (ev.aborted) assistant.aborted = ev.aborted;
+          updateContextMeter();
           if (state.thinkTimes.start && !state.thinkTimes.end) state.thinkTimes.end = performance.now();
           setPhase(ev.aborted ? `Stopped: ${ev.aborted}` : "Done");
           break;

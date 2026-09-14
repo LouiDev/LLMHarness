@@ -38,12 +38,18 @@
   <!-- ============================== conversation ============================== -->
   <main class="main">
     <header class="topbar">
-      <button class="icon-btn" id="toggle-sidebar" title="Show or hide chats" aria-label="Show or hide chats">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M6 2.5v11"/></svg>
-      </button>
       <div class="title-wrap">
+        <button class="icon-btn" id="toggle-sidebar" title="Show or hide chats" aria-label="Show or hide chats">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M6 2.5v11"/></svg>
+        </button>
         <input id="chat-title" class="chat-title" placeholder="New chat" spellcheck="false" aria-label="Chat title">
+      </div>
+      <div class="topbar-center">
         <span class="model-tag" id="topbar-model"></span>
+        <div class="ctx-meter" id="ctx-meter" hidden>
+          <span class="ctx-bar" aria-hidden="true"><span class="ctx-fill" id="ctx-fill"></span></span>
+          <span class="ctx-text" id="ctx-text"></span>
+        </div>
       </div>
       <div class="topbar-actions">
         <button class="btn ghost" id="export-btn" title="Download this chat">Export</button>

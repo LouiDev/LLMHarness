@@ -67,6 +67,9 @@ Environment variables (all optional):
   skips the separate planning step; "search every message" still runs it.
 - **Live readout** while generating: phase (planning, searching, thinking, writing, tools),
   token count, tokens per second, and elapsed time. Stop at any time; partial replies are kept.
+- **Context meter** next to the model name in the top bar: a small bar with "used / limit" tokens. After a reply
+  it uses the prompt size Ollama reports; text typed or attached since then is estimated (marked
+  with `~`). It turns orange above 80 % and red when the next prompt would exceed the context length.
 - **File attachments**: drop, paste, or pick files in the composer. Text, code, CSV, JSON,
   Markdown, PDF and DOCX are extracted server-side and placed in the prompt within the context
   budget (the composer shows the token cost and warns when the end will be cut). Images are
