@@ -1,11 +1,13 @@
 """
 LlmHarness - a local chat harness for Ollama models.
 
-Features: model selection, per-chat system prompts, thinking mode, loop guard,
-sampling controls (max tokens, temperature, ...), saved chats, optional web search.
+Features: model selection, per-chat system prompts with built-in presets, thinking mode,
+loop guard, sampling controls (max tokens, temperature, ...), saved chats, file attachments,
+optional web search, and an agent mode with tools (web, files in a workspace folder, Python
+and shell) behind an Allow / Deny gate in the UI with per-tool approval policies.
 
 Run:  python server.py   (or: uvicorn server:app --reload)
-Open: http://127.0.0.1:8766
+Open: http://127.0.0.1:8766   (LLMHARNESS_PORT overrides the port)
 """
 from __future__ import annotations
 
